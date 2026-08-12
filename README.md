@@ -8,6 +8,8 @@ Example [Astro](https://astro.build) app with React islands and the Cloudflare a
 
 ```text
 .
+├── .env.example
+├── CLAUDE.md
 ├── astro.config.mjs
 ├── package.json
 ├── package-lock.json
@@ -44,6 +46,42 @@ Example [Astro](https://astro.build) app with React islands and the Cloudflare a
 | `npm run deploy` | Deploys with `webflow cloud deploy` |
 | `npm run astro` | Runs the Astro CLI (e.g. `astro add`, `astro check`) |
 | `npm run cf-typegen` | Generates Wrangler TypeScript types (`wrangler types`) |
+| `npm run devlink:export` | Pulls Webflow components into `src/devlink/` as React |
+
+## DevLink
+
+DevLink pulls components out of the Webflow site and writes them into this repo
+as React components, which are then mounted as Astro islands.
+
+### One-time setup
+
+1. Generate a Workspace API token: Webflow Dashboard → Apps & Integrations →
+   Manage → Workspace API Token.
+2. `cp .env.example .env` and set `WEBFLOW_API_TOKEN`. `.env` is gitignored.
+
+### Pulling components
+
+```sh
+npm run devlink:export
+```
+
+Configuration lives in the `devlink-export` block of `webflow.json`. The target
+site is pinned there as `siteId` (`6a73c4d12df78ea4c276a06b`, the "Stone" site),
+and output goes to `src/devlink/`.
+
+**The generated output in `src/devlink/` is committed.** Webflow Cloud builds
+from the repo and has no API token, so the export must be run locally and the
+result checked in. Re-run the export and commit whenever the Webflow components
+change.
+
+Note: `webflow devlink sync` is deprecated in CLI 2.x — `export` replaces it.
+
+### Prop naming
+
+Prop names defined on a Webflow component become the React prop names after
+export. They must match the canonical `Listing` field names exactly — see the
+naming convention in `CLAUDE.md`. Renaming later costs a change in two
+codebases.
 
 ## Learn more
 

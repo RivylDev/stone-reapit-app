@@ -1,5 +1,20 @@
 {
   "cloud": {
     "framework": "astro"
+  },
+  "siteId": "6a73c4d12df78ea4c276a06b",
+  "devlink-export": {
+    "rootDir": "./src/devlink",
+    "components": ".*",
+    "componentGroups": ".*",
+    "ts": true,
+    "relativeHrefRoot": "/"
+  },
+  "telemetry": {
+    "global": {
+      "allowTelemetry": true,
+      "lastPrompted": 1786577063718,
+      "version": "2.4.0"
+    }
   }
 }
