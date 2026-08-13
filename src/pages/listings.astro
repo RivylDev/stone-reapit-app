@@ -1,0 +1,321 @@
+---
+import { env } from 'cloudflare:workers';
+
+import Layout from '../layouts/Layout.astro';
+import { search, DEFAULT_PER_PAGE, type SearchOutcome } from '../lib/queries/listings';
+import {
+  PARAM,
+  readRawFilters,
+  toSearchParams,
+  buildQueryString,
+  hasAnyFilter,
+} from '../lib/queries/params';
+
+/*
+ * Server-rendered, always. Listing data has to be present in view-source with
+ * JavaScript disabled: ~5,200 listing pages carry Stone's organic search, and
+ * client-side rendering of listing content would forfeit it.
+ *
+ * There is no client-side JavaScript on this page at all. The filter is a
+ * plain GET form, so every filter combination is a distinct, shareable,
+ * crawlable URL, and the back button behaves.
+ */
+export const prerender = false;
+
+const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+const actionPath = `${base}/listings`;
+
+const raw = readRawFilters(Astro.url);
+const params = toSearchParams(raw);
+
+// Astro 7 removed `Astro.locals.runtime.env`; bindings come from cloudflare:workers.
+const db = env.DB;
+
+let outcome: SearchOutcome | null = null;
+let failure: string | null = null;
+
+if (!db) {
+  failure =
+    'No D1 binding found. Run `npm run db:migrate` and `npm run db:seed`, then '
+    + 'start the app with `npm run preview` so the binding is available.';
+} else {
+  try {
+    outcome = await search(db, { ...params, perPage: DEFAULT_PER_PAGE });
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  }
+}
+
+const PROPERTY_TYPES = [
+  'House', 'Apartment', 'Townhouse', 'Villa', 'Unit', 'Duplex', 'Studio',
+  'Land', 'Acreage', 'Farm', 'Lifestyle', 'Office', 'Retail', 'Warehouse', 'Showroom',
+];
+
+const PRICE_STEPS = [
+  250000, 500000, 750000, 1000000, 1250000, 1500000, 2000000, 3000000, 5000000,
+];
+
+const STATUS_LABELS: Record<string, string> = {
+  forSale: 'For Sale',
+  forRent: 'For Rent',
+  underOffer: 'Under Offer',
+  sold: 'Sold',
+  leased: 'Leased',
+  withdrawn: 'Withdrawn',
+};
+
+const SORT_LABELS: Record<string, string> = {
+  newest: 'Newest',
+  priceAsc: 'Price: low to high',
+  priceDesc: 'Price: high to low',
+  suburb: 'Suburb A–Z',
+};
+
+const COUNT_OPTIONS = ['1', '2', '3', '4', '5'];
+
+const money = (value: number) =>
+  value >= 1000000 ? `$${value / 1000000}m` : `$${value / 1000}k`;
+
+const page = outcome?.page ?? 1;
+const totalPages = outcome?.totalPages ?? 0;
+
+const title = outcome
+  ? `${outcome.total} propert${outcome.total === 1 ? 'y' : 'ies'} — Stone`
+  : 'Listings — Stone';
+---
+
+<Layout title={title}>
+  <section class="listings-section">
+    <div class="listings-container">
+      <h1 class="listings-title">All listings</h1>
+
+      <div class="search-panel">
+        <!--
+          A plain GET form. No Webflow form runtime, no AJAX, no client JS —
+          submitting navigates and the server renders the result.
+        -->
+        <form class="search-form" method="get" action={actionPath}>
+          <div class="field-group field-group-full">
+            <label class="field-label" for="filter-keywords">Suburb</label>
+            <input
+              class="field-input"
+              id="filter-keywords"
+              type="text"
+              name={PARAM.keywords}
+              value={raw.keywords}
+              placeholder="e.g. Manly"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="filter-row">
+            <div class="field-group">
+              <label class="field-label" for="filter-property-type">Property Type</label>
+              <select class="field-select" id="filter-property-type" name={PARAM.propertyType}>
+                <option value="">Any type</option>
+                {PROPERTY_TYPES.map((type) => (
+                  <option value={type} selected={raw.property_type === type}>{type}</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="field-group">
+              <span class="field-label">Price Range</span>
+              <div class="price-inputs">
+                <select class="field-select field-select-sm" name={PARAM.priceMin} aria-label="Minimum price">
+                  <option value="">No min</option>
+                  {PRICE_STEPS.map((value) => (
+                    <option value={String(value)} selected={raw.price_min === String(value)}>
+                      {money(value)}
+                    </option>
+                  ))}
+                </select>
+                <select class="field-select field-select-sm" name={PARAM.priceMax} aria-label="Maximum price">
+                  <option value="">No max</option>
+                  {PRICE_STEPS.map((value) => (
+                    <option value={String(value)} selected={raw.price_max === String(value)}>
+                      {money(value)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="filter-bedrooms">Bedrooms</label>
+              <select class="field-select" id="filter-bedrooms" name={PARAM.bedrooms}>
+                <option value="">Any</option>
+                {COUNT_OPTIONS.map((n) => (
+                  <option value={n} selected={raw.bedrooms === n}>{n}+</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="filter-bathrooms">Bathrooms</label>
+              <select class="field-select" id="filter-bathrooms" name={PARAM.bathrooms}>
+                <option value="">Any</option>
+                {COUNT_OPTIONS.map((n) => (
+                  <option value={n} selected={raw.bathrooms === n}>{n}+</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="filter-carspaces">Carspaces</label>
+              <select class="field-select" id="filter-carspaces" name={PARAM.carspaces}>
+                <option value="">Any</option>
+                {COUNT_OPTIONS.map((n) => (
+                  <option value={n} selected={raw.carspaces === n}>{n}+</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="filter-status">Status</label>
+              <select class="field-select" id="filter-status" name={PARAM.status}>
+                <option value="">Any status</option>
+                {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                  <option value={value} selected={raw.status === value}>{label}</option>
+                ))}
+              </select>
+            </div>
+
+            <!--
+              Sort lives inside the filter form on purpose. As a separate form
+              it would submit alone and drop every active filter.
+            -->
+            <div class="field-group">
+              <label class="field-label" for="filter-sort">Sort</label>
+              <select class="field-select" id="filter-sort" name={PARAM.sort}>
+                {Object.entries(SORT_LABELS).map(([value, label]) => (
+                  <option value={value} selected={raw.sort === value}>{label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div class="search-actions">
+            <button class="search-button" type="submit">Search</button>
+            {hasAnyFilter(raw) && <a class="clear-link" href={actionPath}>Clear filters</a>}
+          </div>
+        </form>
+      </div>
+
+      {failure && <p class="listings-error">{failure}</p>}
+
+      {outcome && (
+        <>
+          <div class="results-toolbar">
+            <p class="results-count">
+              {outcome.total === 0
+                ? 'No properties match these filters'
+                : `${outcome.total} propert${outcome.total === 1 ? 'y' : 'ies'}`}
+              {totalPages > 1 && ` — page ${page} of ${totalPages}`}
+            </p>
+          </div>
+
+          <div class="listings-grid">
+            {outcome.results.map((listing) => (
+              <article class="listing-card" data-listing-id={listing.listingId}>
+                <div class="listing-media">
+                  {listing.primaryImageUrl
+                    ? <img class="media-image" src={listing.primaryImageUrl} alt="" loading="lazy" width="1200" height="800" />
+                    : <div class="media-placeholder"></div>}
+                  {listing.photoCount > 0 && <div class="photo-count">{listing.photoCount}</div>}
+                  <div class="agent-strip">
+                    <div class="agent-avatar"></div>
+                    <div class="agent-details">
+                      <div class="agent-name">{listing.agentName ?? 'Stone'}</div>
+                      <div class="agent-phone">{listing.agentPhone ?? ''}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="listing-body">
+                  <div class="listing-suburb">{listing.suburb} {listing.state}</div>
+                  <div class="listing-address">{listing.streetAddress}</div>
+                  <div class="listing-price">{listing.priceDisplay}</div>
+
+                  <div class="feature-row">
+                    <div class="feature-box">
+                      <div class="feature-icon"></div>
+                      <div class="feature-value">{listing.bedrooms ?? '–'}</div>
+                    </div>
+                    <div class="feature-box">
+                      <div class="feature-icon"></div>
+                      <div class="feature-value">{listing.bathrooms ?? '–'}</div>
+                    </div>
+                    <div class="feature-box">
+                      <div class="feature-icon"></div>
+                      <div class="feature-value">{listing.carspaces ?? '–'}</div>
+                    </div>
+                  </div>
+
+                  <a class="contact-agent" href={`${base}/listings/${listing.slug}`}>View property</a>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <nav class="pagination" aria-label="Pagination">
+              {page > 1 && (
+                <a class="page-link" rel="prev" href={`${actionPath}${buildQueryString(raw, { page: page - 1 === 1 ? undefined : page - 1 })}`}>
+                  Previous
+                </a>
+              )}
+              <span class="page-status">Page {page} of {totalPages}</span>
+              {page < totalPages && (
+                <a class="page-link" rel="next" href={`${actionPath}${buildQueryString(raw, { page: page + 1 })}`}>
+                  Next
+                </a>
+              )}
+            </nav>
+          )}
+        </>
+      )}
+    </div>
+  </section>
+</Layout>
+
+<style>
+  /* Placeholder styling only. The real design arrives with the DevLink export;
+     these rules exist so the page is legible before that lands. */
+  .listings-section { padding: 2rem 1rem; }
+  .listings-container { max-width: 1200px; margin: 0 auto; }
+  .listings-title { margin: 0 0 1.5rem; }
+  .search-panel { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; }
+  .field-group { display: flex; flex-direction: column; gap: 0.25rem; }
+  .field-group-full { margin-bottom: 0.75rem; }
+  .field-label { font-size: 0.8rem; font-weight: 600; }
+  .field-input, .field-select { padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
+  .filter-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; }
+  .price-inputs { display: flex; gap: 0.5rem; }
+  .price-inputs .field-select { flex: 1; min-width: 0; }
+  .search-actions { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
+  .search-button { padding: 0.6rem 1.5rem; border: 0; border-radius: 4px; background: #111; color: #fff; font: inherit; cursor: pointer; }
+  .clear-link { font-size: 0.9rem; }
+  .results-toolbar { margin-bottom: 1rem; }
+  .results-count { margin: 0; font-size: 0.95rem; }
+  .listings-error { padding: 1rem; border: 1px solid #c00; border-radius: 4px; }
+  .listings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem; }
+  .listing-card { border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
+  .listing-media { position: relative; }
+  .media-image { display: block; width: 100%; height: 190px; object-fit: cover; }
+  .media-placeholder { width: 100%; height: 190px; background: #eee; }
+  .photo-count { position: absolute; top: 8px; right: 8px; padding: 2px 8px; border-radius: 10px; background: rgba(0,0,0,0.6); color: #fff; font-size: 0.75rem; }
+  .agent-strip { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; }
+  .agent-avatar { width: 32px; height: 32px; border-radius: 50%; background: #ddd; flex: none; }
+  .agent-name { font-size: 0.85rem; font-weight: 600; }
+  .agent-phone { font-size: 0.8rem; }
+  .listing-body { padding: 0.75rem; }
+  .listing-suburb { font-size: 13px; }
+  .listing-address { margin-top: 2px; font-size: 16px; font-weight: 600; }
+  .listing-price { font-size: 18px; font-weight: 700; margin: 0.5rem 0; }
+  .feature-row { display: flex; gap: 1rem; }
+  .feature-box { display: flex; align-items: center; gap: 0.25rem; font-size: 0.9rem; }
+  .feature-icon { width: 14px; height: 14px; border-radius: 3px; background: #ccc; }
+  .contact-agent { display: inline-block; margin-top: 0.75rem; font-size: 0.9rem; font-weight: 600; }
+  .pagination { display: flex; align-items: center; gap: 1rem; justify-content: center; margin: 2rem 0; }
+</style>
