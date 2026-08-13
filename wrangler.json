@@ -7,6 +7,14 @@
     "binding": "ASSETS",
     "directory": "./dist/client"
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "stone-listings",
+      "database_id": "PLACEHOLDER_REPLACE_WITH_REAL_D1_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
   "observability": {
     "enabled": true
   }

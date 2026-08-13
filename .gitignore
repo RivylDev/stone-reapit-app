@@ -30,3 +30,6 @@ pnpm-debug.log*
 
 # webflow cli build artifacts
 .tmp/
+
+# local D1 state
+.wrangler/

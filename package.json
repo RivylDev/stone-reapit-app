@@ -15,7 +15,12 @@
     "deploy": "webflow cloud deploy",
     "astro": "astro",
     "cf-typegen": "wrangler types",
-    "devlink:export": "webflow devlink export"
+    "devlink:export": "webflow devlink export",
+    "fixtures": "node scripts/generate-dev-fixtures.mjs",
+    "db:migrate": "wrangler d1 migrations apply stone-listings --local",
+    "db:seed": "node --experimental-strip-types scripts/seed-d1.ts",
+    "test": "node --experimental-strip-types --test 'src/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.0",

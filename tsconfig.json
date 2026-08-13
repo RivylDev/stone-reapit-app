@@ -12,6 +12,11 @@
       "@cloudflare/workers-types/2023-07-01"
     ],
     "jsx": "react-jsx",
-    "jsxImportSource": "react"
+    "jsxImportSource": "react",
+    // Relative imports carry explicit .ts extensions so that Node can run the
+    // ingestion code and its tests directly via --experimental-strip-types.
+    // Vite resolves them the same way, so the Astro build is unaffected.
+    "allowImportingTsExtensions": true,
+    "noEmit": true
   }
 }

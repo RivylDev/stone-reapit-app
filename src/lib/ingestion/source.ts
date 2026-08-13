@@ -1,4 +1,4 @@
-import type { Listing } from '../types/listing';
+import type { Listing } from '../types/listing.ts';
 
 /**
  * The only listing-source contract consumers may depend on.
