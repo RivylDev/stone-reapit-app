@@ -2,6 +2,11 @@
 import { env } from 'cloudflare:workers';
 
 import Layout from '../layouts/Layout.astro';
+/*
+ * Stand-in for the DevLink export. When `npm run devlink:export` has run, this
+ * becomes `import { ListingCard } from '../devlink';` and nothing else changes.
+ */
+import ListingCard from '../components/ListingCard';
 import { search, DEFAULT_PER_PAGE, type SearchOutcome } from '../lib/queries/listings';
 import {
   PARAM,
@@ -216,45 +221,29 @@ const title = outcome
           </div>
 
           <div class="listings-grid">
+            {/*
+              The DevLink card mounted as an Astro island. There is no client:*
+              directive on purpose — without one Astro renders the React
+              component to HTML on the server and ships no JavaScript for it,
+              which is what keeps listing content in view-source.
+
+              Every prop name here matches the Webflow component exactly.
+            */}
             {outcome.results.map((listing) => (
-              <article class="listing-card" data-listing-id={listing.listingId}>
-                <div class="listing-media">
-                  {listing.primaryImageUrl
-                    ? <img class="media-image" src={listing.primaryImageUrl} alt="" loading="lazy" width="1200" height="800" />
-                    : <div class="media-placeholder"></div>}
-                  {listing.photoCount > 0 && <div class="photo-count">{listing.photoCount}</div>}
-                  <div class="agent-strip">
-                    <div class="agent-avatar"></div>
-                    <div class="agent-details">
-                      <div class="agent-name">{listing.agentName ?? 'Stone'}</div>
-                      <div class="agent-phone">{listing.agentPhone ?? ''}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="listing-body">
-                  <div class="listing-suburb">{listing.suburb} {listing.state}</div>
-                  <div class="listing-address">{listing.streetAddress}</div>
-                  <div class="listing-price">{listing.priceDisplay}</div>
-
-                  <div class="feature-row">
-                    <div class="feature-box">
-                      <div class="feature-icon"></div>
-                      <div class="feature-value">{listing.bedrooms ?? '–'}</div>
-                    </div>
-                    <div class="feature-box">
-                      <div class="feature-icon"></div>
-                      <div class="feature-value">{listing.bathrooms ?? '–'}</div>
-                    </div>
-                    <div class="feature-box">
-                      <div class="feature-icon"></div>
-                      <div class="feature-value">{listing.carspaces ?? '–'}</div>
-                    </div>
-                  </div>
-
-                  <a class="contact-agent" href={`${base}/listings/${listing.slug}`}>View property</a>
-                </div>
-              </article>
+              <ListingCard
+                listingId={listing.listingId}
+                suburb={`${listing.suburb} ${listing.state}`}
+                displayAddress={listing.streetAddress}
+                priceDisplay={listing.priceDisplay}
+                bedrooms={listing.bedrooms ?? undefined}
+                bathrooms={listing.bathrooms ?? undefined}
+                carspaces={listing.carspaces ?? undefined}
+                photoCount={listing.photoCount}
+                agentName={listing.agentName ?? 'Stone'}
+                agentPhone={listing.agentPhone ?? ''}
+                contactUrl={`${base}/listings/${listing.slug}`}
+                hasOpenTimes={false}
+              />
             ))}
           </div>
 
@@ -300,22 +289,8 @@ const title = outcome
   .results-count { margin: 0; font-size: 0.95rem; }
   .listings-error { padding: 1rem; border: 1px solid #c00; border-radius: 4px; }
   .listings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem; }
-  .listing-card { border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
-  .listing-media { position: relative; }
-  .media-image { display: block; width: 100%; height: 190px; object-fit: cover; }
-  .media-placeholder { width: 100%; height: 190px; background: #eee; }
-  .photo-count { position: absolute; top: 8px; right: 8px; padding: 2px 8px; border-radius: 10px; background: rgba(0,0,0,0.6); color: #fff; font-size: 0.75rem; }
-  .agent-strip { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; }
-  .agent-avatar { width: 32px; height: 32px; border-radius: 50%; background: #ddd; flex: none; }
-  .agent-name { font-size: 0.85rem; font-weight: 600; }
-  .agent-phone { font-size: 0.8rem; }
-  .listing-body { padding: 0.75rem; }
-  .listing-suburb { font-size: 13px; }
-  .listing-address { margin-top: 2px; font-size: 16px; font-weight: 600; }
-  .listing-price { font-size: 18px; font-weight: 700; margin: 0.5rem 0; }
-  .feature-row { display: flex; gap: 1rem; }
-  .feature-box { display: flex; align-items: center; gap: 0.25rem; font-size: 0.9rem; }
-  .feature-icon { width: 14px; height: 14px; border-radius: 3px; background: #ccc; }
-  .contact-agent { display: inline-block; margin-top: 0.75rem; font-size: 0.9rem; font-weight: 600; }
+  /* Card styling now travels with the component, in ListingCard.css — the same
+     shape DevLink emits. Astro's scoped styles would not reach the React
+     markup anyway, since scoping only tags Astro-authored elements. */
   .pagination { display: flex; align-items: center; gap: 1rem; justify-content: center; margin: 2rem 0; }
 </style>
