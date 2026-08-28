@@ -200,6 +200,54 @@ npm run build && npx wrangler dev
 Then visit `/CLOUD_MOUNT_PATH/listings` (the mount path is substituted on
 Webflow Cloud).
 
+### Seeding a deployed environment
+
+A deploy creates the tables but leaves them empty — migrations build schema,
+they do not load rows. `npm run db:seed` fills the local database, but it drives
+the wrangler CLI and needs Cloudflare account access that Webflow Cloud
+environments do not give you.
+
+`POST /api/seed` does the same work from inside the Worker, through the D1
+binding it already holds.
+
+1. Add **`SEED_TOKEN`** as a **Secret** variable in Webflow Cloud, with any long
+   random value. Redeploy so the Worker picks it up.
+2. Call the endpoint:
+
+```sh
+curl -X POST \
+  -H "content-type: application/json" \
+  -H "x-seed-token: YOUR_SEED_TOKEN" \
+  https://YOUR-SITE/staging/api/seed
+```
+
+PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "https://YOUR-SITE/staging/api/seed" `
+  -Headers @{ "content-type" = "application/json"; "x-seed-token" = "YOUR_SEED_TOKEN" }
+```
+
+**The `content-type: application/json` header is required.** Astro's CSRF
+protection rejects POSTs with form-like content types and no matching `Origin`,
+returning `403 Cross-site POST form submissions are forbidden` — which looks
+like an auth failure but is not one.
+
+The response reports progress:
+
+```json
+{ "done": true, "seededThisCall": 500, "listingsInDatabase": 500, "nextFrom": null }
+```
+
+If `done` is `false`, the run hit its internal time budget rather than failing.
+POST again with `?from=<nextFrom>` to continue. Locally the whole set lands in a
+single call in about half a second.
+
+The endpoint is **idempotent** — the same upserts the offline loader uses, so
+re-running changes nothing. It also **fails closed**: with no `SEED_TOKEN` set it
+returns 503 and refuses to run, so an environment that has not opted in cannot
+be seeded by accident.
+
 ### About `database_id` — do not go looking for a real one
 
 `wrangler.json` carries `"database_id": "123456789"`, matching the dummy value
