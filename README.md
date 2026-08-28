@@ -53,11 +53,56 @@ Example [Astro](https://astro.build) app with React islands and the Cloudflare a
 DevLink pulls components out of the Webflow site and writes them into this repo
 as React components, which are then mounted as Astro islands.
 
-### One-time setup
+### Credential status — the export does not currently run
 
-1. Generate a Workspace API token: Webflow Dashboard → Apps & Integrations →
-   Manage → Workspace API Token.
-2. `cp .env.example .env` and set `WEBFLOW_API_TOKEN`. `.env` is gitignored.
+Read this before spending time on it. As of August 2026 the export is blocked,
+and two of the three ways in are confirmed dead ends.
+
+**Site API tokens — gone.** Webflow has removed per-site API tokens from Site
+settings → Apps & integrations. There is no "API access" section and no
+"Generate API token" button. The CLI still accepts a `WEBFLOW_SITE_API_TOKEN`
+env var, but it is marked deprecated in the CLI's own source and there is no
+longer any way to obtain one.
+
+**Workspace API token — generated, but missing the scope.** A Workspace token
+*can* be generated (it is a permissions wall, not an Enterprise plan wall: you
+need workspace Admin or Owner). But the permission list in the token dialog has
+**no DevLink Export row**. A token generated without it authenticates fine and
+then fails at the last hop:
+
+```
+✖ Components export failed: The access token is missing the required
+  "Read DevLink Export data" permission.
+```
+
+Note that the "Code components" permission is *not* this. Its description —
+"Import React components from an external codebase" — is the `devlink import`
+direction, the opposite of export.
+
+**OAuth login — untried, and the remaining candidate.** `npx webflow auth login`
+runs a browser OAuth flow and writes credentials to `.env`. It is worth one
+attempt because the CLI's OAuth scope request list contains `devlink_export:read`
+directly, so it asks for the export scope through a channel that does not depend
+on the token dialog exposing a checkbox for it. It cannot run in CI or headless:
+it opens a browser and waits on a localhost callback. If it works, the resulting
+token can be copied from `.env` into the `WEBFLOW_API_TOKEN` GitHub secret to
+make the Actions workflow work thereafter.
+
+**Meanwhile**, `src/components/ListingCard.tsx` and its CSS are generated from
+the same live Webflow data the export reads — the component's element tree,
+each class's real properties, and the site's design tokens — pulled through the
+Webflow MCP. It is accurate but does not track design changes automatically;
+it has to be regenerated on request.
+
+### Running the export, once a credential exists
+
+Either put the token in the `WEBFLOW_API_TOKEN` GitHub secret and run the
+**DevLink export** workflow from the Actions tab, or set it in a local `.env`
+and run `npm run devlink:export`.
+
+The workflow file lives on `main` as well as this branch, because GitHub only
+lists a `workflow_dispatch` workflow in the Actions sidebar when it is present
+on the default branch.
 
 ### Pulling components
 
