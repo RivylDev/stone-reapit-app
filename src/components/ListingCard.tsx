@@ -1,17 +1,27 @@
 import './ListingCard.css';
 
 /**
- * STAND-IN for the DevLink export of the Webflow `Listing Card` component.
+ * GENERATED from the live Webflow `Listing Card`, not hand-designed.
  *
- * This file is hand-written and lives in `src/components/`, deliberately NOT in
- * `src/devlink/`. That directory is generated: `npm run devlink:export`
- * overwrites it wholesale, so anything hand-written there would be destroyed on
- * the next export and, worse, could be mistaken for real generated output.
+ * Source: site 6a73c4d12df78ea4c276a06b, component
+ *         a920ee6b-bf0e-bbd1-8a6f-b6b30b96e66c
  *
- * The prop signature below is not invented. It is the exact set of 14 props
- * defined on the Webflow component (id a920ee6b-bf0e-bbd1-8a6f-b6b30b96e66c),
- * each already bound to an element in the Designer. The markup mirrors the
- * component's real element tree and class names.
+ * The element tree, class names and prop signature were all read out of the
+ * Webflow Designer through the Webflow MCP, then transcribed here. The styles
+ * live in ListingCard.css, likewise generated from the site's real class
+ * properties and design tokens.
+ *
+ * This exists because `webflow devlink export` needs a Workspace API token,
+ * which requires workspace Admin rights nobody on this project currently has.
+ * It is a faithful reproduction from the same source of truth DevLink reads —
+ * but it is NOT the official pipeline, and it does not track design changes on
+ * its own. When the card changes in Webflow, ask Claude to regenerate this
+ * file and ListingCard.css.
+ *
+ * It lives in `src/components/`, deliberately NOT in `src/devlink/`. That
+ * directory belongs to the real export, which overwrites it wholesale — a file
+ * placed there would be destroyed on the next run and, worse, could be mistaken
+ * for genuine generated output.
  *
  * WHEN THE REAL EXPORT ARRIVES, the swap is one import line in listings.astro:
  *
