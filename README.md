@@ -200,6 +200,27 @@ npm run build && npx wrangler dev
 Then visit `/CLOUD_MOUNT_PATH/listings` (the mount path is substituted on
 Webflow Cloud).
 
+### About `database_id` — do not go looking for a real one
+
+`wrangler.json` carries `"database_id": "123456789"`, matching the dummy value
+in Webflow Cloud's own instructions. **This is correct as-is and needs no
+edit.**
+
+Webflow Cloud has no "create a database and copy its ID" flow. Its Storage tab
+does not open a creation form; it shows instructions telling you to declare the
+`d1_databases` array in `wrangler.json`, commit, and deploy. Webflow provisions
+the database and **assigns the real `database_id` at deploy time**, overwriting
+whatever placeholder is in the file. The deploy also runs everything in
+`migrations_dir` automatically.
+
+So no Cloudflare account access is needed, and there is nothing to paste in.
+
+One gotcha if you ever do change this value: local D1 state is keyed by
+`database_id`, so changing it silently repoints local development at a fresh,
+empty database. The old data is still on disk under the previous key, but the
+app will report `no such table: listings`. Re-run `npm run db:migrate` and
+`npm run db:seed` after any change.
+
 ### Checks
 
 ```sh

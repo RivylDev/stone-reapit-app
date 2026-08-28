@@ -11,7 +11,7 @@
     {
       "binding": "DB",
       "database_name": "stone-listings",
-      "database_id": "PLACEHOLDER_REPLACE_WITH_REAL_D1_ID",
+      "database_id": "123456789",
       "migrations_dir": "migrations"
     }
   ],
