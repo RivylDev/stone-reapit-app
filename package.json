@@ -14,7 +14,13 @@
     "preview": "astro build && wrangler dev",
     "deploy": "webflow cloud deploy",
     "astro": "astro",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "devlink:export": "webflow devlink export",
+    "fixtures": "node scripts/generate-dev-fixtures.mjs",
+    "db:migrate": "wrangler d1 migrations apply stone-listings --local",
+    "db:seed": "node --experimental-strip-types scripts/seed-d1.ts",
+    "test": "node --experimental-strip-types --test 'src/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.0",
@@ -27,6 +33,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250415.0",
+    "@webflow/webflow-cli": "^2.4.0",
     "wrangler": "^4.83.0"
   }
 }

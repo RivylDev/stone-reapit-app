@@ -1,0 +1,211 @@
+/*
+ * GENERATED from the live Webflow component, not hand-designed.
+ *
+ * Source: site 6a73c4d12df78ea4c276a06b, component "Listing Card"
+ *         (a920ee6b-bf0e-bbd1-8a6f-b6b30b96e66c)
+ *
+ * Every declaration below was read from the Webflow Designer through the
+ * Webflow MCP: the class list comes from the component's element tree, the
+ * property values from each class's stored style, and the token values from the
+ * site's variable collection. Nothing here is invented.
+ *
+ * This stands in for the CSS `webflow devlink export` would emit. When that
+ * export can run, it replaces this file and the class names already match.
+ *
+ * Regenerating: ask Claude to re-read the component and rewrite this file.
+ * Hand-editing it means the next regeneration silently discards your changes.
+ */
+
+/*
+ * Stone design tokens, copied from the site's variable collection so the card
+ * renders correctly standalone.
+ *
+ * Wrapped in :where() so they carry zero specificity — if Stone's real
+ * stylesheet is ever loaded alongside this, its definitions win automatically
+ * and the card follows brand changes rather than pinning stale values.
+ */
+:where(:root) {
+  --_stone-tokens---ink: #111111;
+  --_stone-tokens---ink-muted: #6b6b6b;
+  --_stone-tokens---surface: #ffffff;
+  --_stone-tokens---surface-subtle: #f2f2f2;
+  --_stone-tokens---placeholder: #d9d9d9;
+  --_stone-tokens---border: #d4d4d4;
+  --_stone-tokens---action: #000000;
+  --_stone-tokens---action-text: #ffffff;
+  --_stone-tokens---radius-sm: 6px;
+  --_stone-tokens---radius-md: 10px;
+  --_stone-tokens---space-xs: 8px;
+  --_stone-tokens---space-sm: 12px;
+  --_stone-tokens---space-md: 20px;
+  --_stone-tokens---space-lg: 40px;
+  --_stone-tokens---container-max: 1140px;
+}
+
+.listing-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--_stone-tokens---border);
+  border-radius: var(--_stone-tokens---radius-md);
+  background-color: var(--_stone-tokens---surface);
+}
+
+/* ------------------------------------------------------------------ media -- */
+
+.listing-media {
+  position: relative;
+  padding: var(--_stone-tokens---space-sm);
+}
+
+.media-placeholder {
+  display: flex;
+  height: 300px;
+  justify-content: center;
+  align-items: center;
+  border-radius: var(--_stone-tokens---radius-sm);
+  background-color: var(--_stone-tokens---placeholder);
+}
+
+.photo-count {
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  z-index: 2;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background-color: var(--_stone-tokens---surface);
+  color: var(--_stone-tokens---ink);
+  font-size: 12px;
+}
+
+.agent-strip {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  left: 22px;
+  display: flex;
+  align-items: center;
+  gap: var(--_stone-tokens---space-xs);
+  padding: 6px;
+  border-radius: var(--_stone-tokens---radius-sm);
+  background-color: var(--_stone-tokens---surface-subtle);
+}
+
+.agent-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  background-color: var(--_stone-tokens---border);
+}
+
+.agent-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-name {
+  color: var(--_stone-tokens---ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.agent-phone {
+  color: var(--_stone-tokens---ink-muted);
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------- body -- */
+
+.listing-body {
+  display: flex;
+  flex-direction: column;
+  padding: var(--_stone-tokens---space-sm);
+}
+
+.listing-suburb {
+  color: var(--_stone-tokens---ink-muted);
+  font-size: 13px;
+}
+
+.listing-address {
+  margin-top: 2px;
+  margin-bottom: var(--_stone-tokens---space-sm);
+  color: var(--_stone-tokens---ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.listing-price {
+  margin-bottom: var(--_stone-tokens---space-sm);
+  color: var(--_stone-tokens---ink);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.feature-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: auto;
+  grid-column-gap: var(--_stone-tokens---space-xs);
+}
+
+.feature-box {
+  display: flex;
+  height: 44px;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--_stone-tokens---border);
+  border-radius: var(--_stone-tokens---radius-sm);
+}
+
+.feature-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  background-color: var(--_stone-tokens---border);
+}
+
+.feature-value {
+  color: var(--_stone-tokens---ink);
+  font-size: 14px;
+}
+
+/* -------------------------------------------------------------- open times -- */
+
+.open-times {
+  margin-top: var(--_stone-tokens---space-sm);
+  padding-top: var(--_stone-tokens---space-sm);
+  border-top: 1px solid var(--_stone-tokens---border);
+}
+
+.open-times-label {
+  margin-bottom: 6px;
+  color: var(--_stone-tokens---ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.open-times-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.open-date,
+.open-time {
+  color: var(--_stone-tokens---ink-muted);
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------------------ action -- */
+
+.contact-agent {
+  margin-top: var(--_stone-tokens---space-sm);
+  padding-top: var(--_stone-tokens---space-sm);
+  border-top: 1px solid var(--_stone-tokens---border);
+  color: var(--_stone-tokens---ink);
+  font-size: 14px;
+  text-decoration: none;
+}

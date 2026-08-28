@@ -1,0 +1,383 @@
+---
+import { env } from 'cloudflare:workers';
+
+import Layout from '../layouts/Layout.astro';
+/*
+ * Stand-in for the DevLink export. When `npm run devlink:export` has run, this
+ * becomes `import { ListingCard } from '../devlink';` and nothing else changes.
+ */
+import ListingCard from '../components/ListingCard';
+import { search, DEFAULT_PER_PAGE, type SearchOutcome } from '../lib/queries/listings';
+import {
+  PARAM,
+  readRawFilters,
+  toSearchParams,
+  buildQueryString,
+  hasAnyFilter,
+} from '../lib/queries/params';
+
+/*
+ * Server-rendered, always. Listing data has to be present in view-source with
+ * JavaScript disabled: ~5,200 listing pages carry Stone's organic search, and
+ * client-side rendering of listing content would forfeit it.
+ *
+ * There is no client-side JavaScript on this page at all. The filter is a
+ * plain GET form, so every filter combination is a distinct, shareable,
+ * crawlable URL, and the back button behaves.
+ */
+export const prerender = false;
+
+const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+const actionPath = `${base}/listings`;
+
+const raw = readRawFilters(Astro.url);
+const params = toSearchParams(raw);
+
+// Astro 7 removed `Astro.locals.runtime.env`; bindings come from cloudflare:workers.
+const db = env.DB;
+
+let outcome: SearchOutcome | null = null;
+let failure: string | null = null;
+
+if (!db) {
+  failure =
+    'No D1 binding found. Run `npm run db:migrate` and `npm run db:seed`, then '
+    + 'start the app with `npm run preview` so the binding is available.';
+} else {
+  try {
+    outcome = await search(db, { ...params, perPage: DEFAULT_PER_PAGE });
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  }
+}
+
+const PROPERTY_TYPES = [
+  'House', 'Apartment', 'Townhouse', 'Villa', 'Unit', 'Duplex', 'Studio',
+  'Land', 'Acreage', 'Farm', 'Lifestyle', 'Office', 'Retail', 'Warehouse', 'Showroom',
+];
+
+const PRICE_STEPS = [
+  250000, 500000, 750000, 1000000, 1250000, 1500000, 2000000, 3000000, 5000000,
+];
+
+const STATUS_LABELS: Record<string, string> = {
+  forSale: 'For Sale',
+  forRent: 'For Rent',
+  underOffer: 'Under Offer',
+  sold: 'Sold',
+  leased: 'Leased',
+  withdrawn: 'Withdrawn',
+};
+
+const SORT_LABELS: Record<string, string> = {
+  newest: 'Newest',
+  priceAsc: 'Price: low to high',
+  priceDesc: 'Price: high to low',
+  suburb: 'Suburb A–Z',
+};
+
+const COUNT_OPTIONS = ['1', '2', '3', '4', '5'];
+
+const money = (value: number) =>
+  value >= 1000000 ? `$${value / 1000000}m` : `$${value / 1000}k`;
+
+const page = outcome?.page ?? 1;
+const totalPages = outcome?.totalPages ?? 0;
+
+const title = outcome
+  ? `${outcome.total} propert${outcome.total === 1 ? 'y' : 'ies'} — Stone`
+  : 'Listings — Stone';
+---
+
+<Layout title={title}>
+  <section class="listings-section">
+    <div class="listings-container">
+      <h1 class="listings-title">All listings</h1>
+
+      <!--
+        Filters sit beside the results rather than stacked above them: an aside
+        alongside the main column, so the grid gets the full remaining width.
+      -->
+      <div class="listings-layout">
+        <aside class="filters-col" aria-labelledby="filters-heading">
+          <h2 class="visually-hidden" id="filters-heading">Filter listings</h2>
+          <!--
+            A plain GET form. No Webflow form runtime, no AJAX, no client JS —
+            submitting navigates and the server renders the result.
+          -->
+          <form class="search-form" method="get" action={actionPath}>
+          <div class="field-group field-group-full">
+            <label class="field-label" for="filter-keywords">Suburb</label>
+            <input
+              class="field-input"
+              id="filter-keywords"
+              type="text"
+              name={PARAM.keywords}
+              value={raw.keywords}
+              placeholder="e.g. Manly"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="filter-fields">
+            <div class="field-group">
+              <label class="field-label" for="filter-property-type">Property Type</label>
+              <select class="field-select" id="filter-property-type" name={PARAM.propertyType}>
+                <option value="">Any type</option>
+                {PROPERTY_TYPES.map((type) => (
+                  <option value={type} selected={raw.property_type === type}>{type}</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="field-group">
+              <span class="field-label">Price Range</span>
+              <div class="price-inputs">
+                <select class="field-select field-select-sm" name={PARAM.priceMin} aria-label="Minimum price">
+                  <option value="">No min</option>
+                  {PRICE_STEPS.map((value) => (
+                    <option value={String(value)} selected={raw.price_min === String(value)}>
+                      {money(value)}
+                    </option>
+                  ))}
+                </select>
+                <select class="field-select field-select-sm" name={PARAM.priceMax} aria-label="Maximum price">
+                  <option value="">No max</option>
+                  {PRICE_STEPS.map((value) => (
+                    <option value={String(value)} selected={raw.price_max === String(value)}>
+                      {money(value)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="filter-bedrooms">Bedrooms</label>
+              <select class="field-select" id="filter-bedrooms" name={PARAM.bedrooms}>
+                <option value="">Any</option>
+                {COUNT_OPTIONS.map((n) => (
+                  <option value={n} selected={raw.bedrooms === n}>{n}+</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="filter-bathrooms">Bathrooms</label>
+              <select class="field-select" id="filter-bathrooms" name={PARAM.bathrooms}>
+                <option value="">Any</option>
+                {COUNT_OPTIONS.map((n) => (
+                  <option value={n} selected={raw.bathrooms === n}>{n}+</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="filter-carspaces">Carspaces</label>
+              <select class="field-select" id="filter-carspaces" name={PARAM.carspaces}>
+                <option value="">Any</option>
+                {COUNT_OPTIONS.map((n) => (
+                  <option value={n} selected={raw.carspaces === n}>{n}+</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="filter-status">Status</label>
+              <select class="field-select" id="filter-status" name={PARAM.status}>
+                <option value="">Any status</option>
+                {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                  <option value={value} selected={raw.status === value}>{label}</option>
+                ))}
+              </select>
+            </div>
+
+            <!--
+              Sort lives inside the filter form on purpose. As a separate form
+              it would submit alone and drop every active filter.
+            -->
+            <div class="field-group">
+              <label class="field-label" for="filter-sort">Sort</label>
+              <select class="field-select" id="filter-sort" name={PARAM.sort}>
+                {Object.entries(SORT_LABELS).map(([value, label]) => (
+                  <option value={value} selected={raw.sort === value}>{label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div class="search-actions">
+            <button class="search-button" type="submit">Search</button>
+            {hasAnyFilter(raw) && <a class="clear-link" href={actionPath}>Clear filters</a>}
+          </div>
+          </form>
+        </aside>
+
+        <div class="results-col">
+      {failure && <p class="listings-error">{failure}</p>}
+
+      {outcome && (
+        <>
+          <div class="results-toolbar">
+            <p class="results-count">
+              {outcome.total === 0
+                ? 'No properties match these filters'
+                : `${outcome.total} propert${outcome.total === 1 ? 'y' : 'ies'}`}
+              {totalPages > 1 && ` — page ${page} of ${totalPages}`}
+            </p>
+          </div>
+
+          <div class="listings-grid">
+            {/*
+              The DevLink card mounted as an Astro island. There is no client:*
+              directive on purpose — without one Astro renders the React
+              component to HTML on the server and ships no JavaScript for it,
+              which is what keeps listing content in view-source.
+
+              Every prop name here matches the Webflow component exactly.
+            */}
+            {outcome.results.map((listing) => (
+              <ListingCard
+                listingId={listing.listingId}
+                suburb={`${listing.suburb} ${listing.state}`}
+                displayAddress={listing.streetAddress}
+                priceDisplay={listing.priceDisplay}
+                bedrooms={listing.bedrooms ?? undefined}
+                bathrooms={listing.bathrooms ?? undefined}
+                carspaces={listing.carspaces ?? undefined}
+                photoCount={listing.photoCount}
+                agentName={listing.agentName ?? 'Stone'}
+                agentPhone={listing.agentPhone ?? ''}
+                contactUrl={`${base}/listings/${listing.slug}`}
+                hasOpenTimes={false}
+              />
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <nav class="pagination" aria-label="Pagination">
+              {page > 1 && (
+                <a class="page-link" rel="prev" href={`${actionPath}${buildQueryString(raw, { page: page - 1 === 1 ? undefined : page - 1 })}`}>
+                  Previous
+                </a>
+              )}
+              <span class="page-status">Page {page} of {totalPages}</span>
+              {page < totalPages && (
+                <a class="page-link" rel="next" href={`${actionPath}${buildQueryString(raw, { page: page + 1 })}`}>
+                  Next
+                </a>
+              )}
+            </nav>
+          )}
+        </>
+      )}
+        </div>
+      </div>
+    </div>
+  </section>
+</Layout>
+
+<style>
+  /*
+    Page furniture only. Card styling travels with the component in
+    ListingCard.css — the shape DevLink emits — and Astro's scoped styles could
+    not reach that React markup anyway, since scoping only tags Astro-authored
+    elements. Colours come from the Stone tokens in global.css.
+  */
+
+  .listings-section { padding: var(--stone-space-lg) var(--stone-space-md); }
+  .listings-container { width: 100%; max-width: var(--stone-container-max); margin: 0 auto; }
+  .listings-title { margin: 0 0 var(--stone-space-lg); font-size: 2rem; line-height: 1.2; }
+
+  /* Sidebar beside results. minmax(0,1fr) stops long content blowing the grid
+     out past the container, which `1fr` alone allows. */
+  .listings-layout {
+    display: grid;
+    grid-template-columns: 17rem minmax(0, 1fr);
+    gap: var(--stone-space-lg);
+    align-items: start;
+  }
+
+  .filters-col {
+    position: sticky;
+    top: var(--stone-space-md);
+    border: 1px solid var(--stone-border);
+    border-radius: var(--stone-radius-md);
+    padding: var(--stone-space-md);
+    background: var(--stone-surface);
+  }
+
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+
+  .search-form { display: flex; flex-direction: column; gap: var(--stone-space-sm); }
+  .filter-fields { display: flex; flex-direction: column; gap: var(--stone-space-sm); }
+  .field-group { display: flex; flex-direction: column; gap: 4px; }
+  .field-label { font-size: 0.78rem; font-weight: 600; color: var(--stone-ink-muted); }
+
+  .field-input,
+  .field-select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--stone-border);
+    border-radius: var(--stone-radius-sm);
+    background: var(--stone-surface);
+    color: var(--stone-ink);
+    font: inherit;
+    font-size: 0.9rem;
+  }
+
+  .price-inputs { display: flex; gap: var(--stone-space-xs); }
+  .price-inputs .field-select { flex: 1; min-width: 0; }
+
+  .search-actions {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--stone-space-sm); margin-top: 4px;
+  }
+  .search-button {
+    padding: 10px 22px; border: 0;
+    border-radius: var(--stone-radius-sm);
+    background: var(--stone-action); color: var(--stone-action-text);
+    font: inherit; font-size: 0.9rem; cursor: pointer;
+  }
+  .clear-link { font-size: 0.85rem; color: var(--stone-ink-muted); }
+
+  .results-col { display: flex; flex-direction: column; gap: var(--stone-space-md); }
+  .results-toolbar { display: flex; align-items: center; }
+  .results-count { margin: 0; font-size: 0.95rem; color: var(--stone-ink-muted); }
+
+  .listings-error {
+    padding: var(--stone-space-sm);
+    border: 1px solid #c0392b; border-radius: var(--stone-radius-sm);
+    color: #c0392b;
+  }
+
+  /* Three across in the results column, as asked. */
+  .listings-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--stone-space-md);
+  }
+
+  .pagination {
+    display: flex; align-items: center; justify-content: center;
+    gap: var(--stone-space-md); margin-top: var(--stone-space-md);
+    font-size: 0.9rem;
+  }
+
+  /* Sidebar drops above the results before the cards get too narrow to read. */
+  @media (max-width: 60rem) {
+    .listings-layout { grid-template-columns: minmax(0, 1fr); gap: var(--stone-space-md); }
+    .filters-col { position: static; }
+    .filter-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+    .listings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 36rem) {
+    .listings-section { padding: var(--stone-space-md) var(--stone-space-sm); }
+    .listings-grid { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>

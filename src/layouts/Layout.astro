@@ -1,5 +1,11 @@
 ---
 import "../styles/global.css";
+
+interface Props {
+  title?: string;
+}
+
+const { title = "Webflow Cloud Astro App" } = Astro.props;
 ---
 
 <!doctype html>
@@ -13,7 +19,7 @@ import "../styles/global.css";
       href={`${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/astro.svg`}
     />
     <meta name="generator" content={Astro.generator} />
-    <title>Webflow Cloud Astro App</title>
+    <title>{title}</title>
   </head>
   <body>
     <slot />

@@ -15,7 +15,8 @@ pnpm-debug.log*
 
 # environment variables
 .env
-.env.production
+.env.*
+!.env.example
 
 # macOS-specific files
 .DS_Store
@@ -29,3 +30,6 @@ pnpm-debug.log*
 
 # webflow cli build artifacts
 .tmp/
+
+# local D1 state
+.wrangler/
