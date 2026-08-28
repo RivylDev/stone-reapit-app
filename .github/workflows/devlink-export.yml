@@ -1,0 +1,73 @@
+# Pulls the Webflow components into the repo as React, then commits the result.
+#
+# Run it from the Actions tab: "DevLink export" → "Run workflow" → pick a branch.
+#
+# Requires one repository secret, WEBFLOW_API_TOKEN — a Webflow Workspace API
+# token. The token stays in GitHub's secret store: it is never written to the
+# repo, never printed in logs, and never needs to exist on anyone's laptop.
+#
+# The generated output in src/devlink/ is committed on purpose. Webflow Cloud
+# builds from the repo and has no API token, so the export has to happen here
+# and the result has to be checked in.
+
+name: DevLink export
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Fail early if the token is missing
+        env:
+          WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
+        run: |
+          if [ -z "$WEBFLOW_API_TOKEN" ]; then
+            echo "::error::WEBFLOW_API_TOKEN is not set."
+            echo "Add it under Settings > Secrets and variables > Actions > New repository secret."
+            echo "Generate the token at webflow.com/dashboard > Apps & Integrations > Manage > Workspace API Token."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Export Webflow components
+        env:
+          WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
+        run: npm run devlink:export
+
+      - name: Show what was generated
+        run: |
+          echo "Files written to src/devlink:"
+          ls -R src/devlink || echo "(nothing — the export produced no files)"
+
+      - name: Commit the generated output
+        run: |
+          # webflow.json is included because the CLI writes its resolved config
+          # back into it on first run.
+          if [ -z "$(git status --porcelain src/devlink webflow.json)" ]; then
+            echo "No changes. The export matches what is already committed."
+            exit 0
+          fi
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/devlink webflow.json
+          git commit -m 'Update DevLink export from Webflow'
+          git push
+          echo "Pushed the updated export to ${GITHUB_REF_NAME}."
