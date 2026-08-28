@@ -19,6 +19,7 @@
     "fixtures": "node scripts/generate-dev-fixtures.mjs",
     "db:migrate": "wrangler d1 migrations apply stone-listings --local",
     "db:seed": "node --experimental-strip-types scripts/seed-d1.ts",
+    "agentbox:probe": "node --experimental-strip-types scripts/probe-agentbox.ts",
     "test": "node --experimental-strip-types --test 'src/**/*.test.ts'",
     "typecheck": "tsc --noEmit"
   },

@@ -16,7 +16,7 @@ Stack: Astro on Webflow Cloud, which runs on Cloudflare Workers. D1 for storage.
 - D1 binding configured in `wrangler.json`
 - Seed data in the repo: `seed-listings.json` (5,376 records), `seed-listings-demo.json` (500), `seed-offices.json` (76), `seed-agents.json` (837)
 - A `Listing Card` component exists in Webflow, being prepared for DevLink export
-- **No Reapit API access.** Credentials have not been issued. Everything runs on seed data.
+- **Reapit sandbox credentials issued.** `AgentboxSource` is written against them, but its response field mapping is unverified — the published API reference does not document the listing schema. Everything the app renders still runs on seed data.
 
 ## Hard rules
 
@@ -25,8 +25,12 @@ Do not violate these without asking first.
 **1. All identifiers are strings, never numbers.**
 Listing IDs are mostly 7 digits but some are 6. A second identifier exists in `100P######` and `IRE#######` forms. Integer columns will corrupt these silently.
 
-**2. Never call the Agentbox API.**
-No credentials exist. Any code touching a real endpoint is out of scope. Write against `MockSource` only.
+**2. Agentbox is sandbox-only.**
+*Amended 28 August 2026. This rule previously read "Never call the Agentbox API", on the premise that no credentials existed. Sandbox credentials have since been issued and the owner has authorised the integration.*
+
+Only the sandbox instance may be called. `AgentboxClient` decodes the client ID and refuses one that does not resolve to a sandbox unless `allowProduction: true` is passed deliberately. Reaching a live instance still needs a decision, not a config change.
+
+`createListingSource()` returns `MockSource` until the field mapping is verified against a real payload. Do not flip that default on guesswork.
 
 **3. Nothing outside `src/lib/ingestion/` may import a concrete source.**
 Consumers depend on the `ListingSource` interface, never on `MockSource` or a future `AgentboxSource` directly. This is what makes the eventual swap a non-event.
