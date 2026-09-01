@@ -15,8 +15,11 @@ Stack: Astro on Webflow Cloud, which runs on Cloudflare Workers. D1 for storage.
 - Webflow Cloud app deployed and mounted at `/app`
 - D1 binding configured in `wrangler.json`
 - Seed data in the repo: `seed-listings.json` (5,376 records), `seed-listings-demo.json` (500), `seed-offices.json` (76), `seed-agents.json` (837)
-- A `Listing Card` component exists in Webflow, being prepared for DevLink export
-- **Reapit sandbox credentials issued.** `AgentboxSource` is written against them, but its response field mapping is unverified — the published API reference does not document the listing schema. Everything the app renders still runs on seed data.
+- A `Listing Card` component exists in Webflow and **is exported** — `src/devlink/` is
+  real DevLink output, rendered by `listings.astro`. Authenticate with
+  `npx webflow auth login`; note DevLink prefixes props with their Designer property
+  group, so `suburb` arrives as `listingSuburb` (mapping table in ARCHITECTURE §5)
+- **Reapit sandbox connected.** `AgentboxSource` is verified against the live sandbox and `npm run db:seed:agentbox` fills D1 from it. Production credentials have not been issued yet; `--allow-production` is the only switch that will need flipping. The default source is still `MockSource`, so a fresh checkout needs no credentials.
 
 ## Hard rules
 
@@ -30,7 +33,7 @@ Listing IDs are mostly 7 digits but some are 6. A second identifier exists in `1
 
 Only the sandbox instance may be called. `AgentboxClient` decodes the client ID and refuses one that does not resolve to a sandbox unless `allowProduction: true` is passed deliberately. Reaching a live instance still needs a decision, not a config change.
 
-`createListingSource()` returns `MockSource` until the field mapping is verified against a real payload. Do not flip that default on guesswork.
+`createListingSource()` returns `MockSource` unless Agentbox is switched on with credentials in hand. Keep it that way: the fixtures need no network and no secrets, which is what keeps tests and a fresh checkout working.
 
 **3. Nothing outside `src/lib/ingestion/` may import a concrete source.**
 Consumers depend on the `ListingSource` interface, never on `MockSource` or a future `AgentboxSource` directly. This is what makes the eventual swap a non-event.
