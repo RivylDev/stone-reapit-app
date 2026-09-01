@@ -1,39 +1,36 @@
 /**
- * ⚠️ PROVISIONAL — NOT VERIFIED AGAINST A REAL PAYLOAD ⚠️
+ * Agentbox listing record → canonical `Listing`.
  *
- * Every Agentbox → `Listing` field name in this file is a *guess*.
+ * VERIFIED against live sandbox payloads (2,103 listings on sandbox1) via
+ * `npm run agentbox:probe`. The paths below are what the API actually returns,
+ * not inference from the filter vocabulary as they once were.
  *
- * The published Reapit Sales API reference documents the listing response
- * schema as an empty object (`{ "listings": [ {} ] }`). It never names a single
- * field of a listing record. What the reference *does* give is the filter and
- * `orderBy` vocabulary, and those names are the basis for the guesses below:
+ * Two shapes exist and this handles both:
  *
- *   orderBy   soldPrice, searchPrice, address, lastModified, firstCreated,
- *             listedDate, nextInspectionDate
- *   filters   type, status, marketingStatus, propertyType, propertyCategory,
- *             suburb, region, state, latitude, longitude, priceFrom/To,
- *             bedroomsFrom/To, bathroomsFrom/To, totalParkingFrom/To,
- *             landAreaFrom/To, features, unitNum, lvNum, streetNum,
- *             streetName, streetType, officeId, memberId, hiddenListing
- *   include   images, relatedStaffMembers, relatedContacts
+ *   /listings          thin. No `images`, no `searchPrice`. `mainDescription`
+ *                      only when named in `include`.
+ *   /listings/{id}     complete. Everything above, plus `images`.
  *
- * Because it is guesswork, every field is read through `pick()`, which tries
- * several candidate paths and takes the first that exists. That is deliberately
- * loose: it buys tolerance to being wrong about *where* a value sits, at the
- * cost of being unable to prove any of it.
+ * Anything the thin shape omits maps to null or an empty array rather than
+ * throwing, so a list-only sync still produces renderable listings.
  *
- * ► To make this real, one authentic listing payload is enough. Run
- *   `node scripts/probe-agentbox.mjs` from a machine with network access to
- *   `api.agentboxcrm.com.au` (this container is firewalled off from it) and
- *   correct the paths below against what comes back. `collectUnmappedKeys()`
- *   reports which source keys the mapping ignored, which is the fastest way to
- *   spot what has been missed.
+ * Vocabulary observed across a 600-listing sample:
  *
- * Until that happens `createListingSource()` keeps returning `MockSource`.
- * Nothing in the app reads Agentbox data through this file yet.
+ *   type               Sale (547), Lease (52), Sale/Lease (1)
+ *   marketingStatus    Not Listed (421), Sold (76), Available (67),
+ *                      Leased (25), Under Contract (11)
+ *   property.type      Residential, Commercial, Holiday, Business, Rural
+ *   property.category  House, Apartment, Land, Acreage, Unit, Semi/Duplex,
+ *                      Office, Townhouse, Retail, Block Of Units, Warehouse,
+ *                      Development, Car Space, Villa, Motel, …
+ *
+ * Note `marketingStatus` — roughly 70% of records on the instance are
+ * appraisals and pre-listings marked "Not Listed". They are not publishable,
+ * which is why `AgentboxSource` filters them out before they reach here.
  */
 
 import type { Listing, ListingStatus } from '../types/listing.ts';
+import type { SourceAgent, SourceOffice } from './source.ts';
 
 /* -------------------------------------------------------------- accessors -- */
 
@@ -92,12 +89,30 @@ function asBoolean(value: unknown): boolean | null {
   return null;
 }
 
-/** ISO 8601, or null. Agentbox dates are `YYYY-MM-DD HH:MM:SS` as often as not. */
+/** Matches a trailing `Z` or `±HH:MM` / `±HHMM` offset. */
+const HAS_TIMEZONE = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+
+/**
+ * ISO 8601, or null.
+ *
+ * `lastModified` carries an offset (`2026-07-30T18:05:55+10:00`), but the other
+ * date fields arrive as bare `YYYY-MM-DD HH:MM:SS`. A date-time with no zone is
+ * parsed as *local* time by the ECMAScript spec, which would make `modifiedAt`
+ * depend on the timezone of whichever machine ran the sync — the same record
+ * would land 10 hours apart from a Sydney laptop and a UTC container, and
+ * `modifiedAt` is what the loader dedupes on.
+ *
+ * A zone-less value is therefore read as UTC. That may be an hours-level offset
+ * from what the CRM meant, but it is the same value everywhere, every run.
+ */
 function asIsoDate(value: unknown): string | null {
   const raw = asString(value);
   if (raw === null) return null;
 
-  const parsed = Date.parse(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+  const normalised = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const zoned = HAS_TIMEZONE.test(normalised) ? normalised : `${normalised}Z`;
+
+  const parsed = Date.parse(zoned);
   return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
 }
 
@@ -125,7 +140,9 @@ export function slugify(value: string): string {
 export function mapStatus(rawType: unknown, rawMarketingStatus: unknown): ListingStatus {
   const type = (asString(rawType) ?? '').toLowerCase();
   const marketing = (asString(rawMarketingStatus) ?? '').toLowerCase();
-  const isLease = type.includes('lease') || type.includes('rent');
+  // `Sale/Lease` is offered both ways. It reads as a sale, which is the
+  // primary intent and what the display price is quoted against.
+  const isLease = !type.includes('sale') && (type.includes('lease') || type.includes('rent'));
 
   if (marketing.includes('sold')) return 'sold';
   if (marketing.includes('leased')) return 'leased';
@@ -136,17 +153,18 @@ export function mapStatus(rawType: unknown, rawMarketingStatus: unknown): Listin
 }
 
 /**
- * Agentbox's `propertyType` is the broad bucket (Residential, Commercial,
- * Rural, Land) and `propertyCategory` is the granular one (Apartment, House,
- * Factory). Our type names them the other way round: `category` is the bucket,
- * `propertyType` is the granular label. The mapping crosses over accordingly —
- * this is the single most likely thing to be wrong here, and the easiest to
- * confirm from one payload.
+ * `property.type` is the broad bucket, `property.category` the granular label.
+ * Our type names them the other way round — `category` is the bucket,
+ * `propertyType` the granular label — so the mapping crosses over. Confirmed
+ * against the payload: `property.type` is "Residential", `property.category`
+ * is "Apartment".
+ *
+ * `Business` buckets as commercial; `Holiday` as residential.
  */
 export function mapCategory(rawPropertyType: unknown): Listing['category'] {
   const value = (asString(rawPropertyType) ?? '').toLowerCase();
 
-  if (value.startsWith('comm')) return 'commercial';
+  if (value.startsWith('comm') || value.startsWith('business')) return 'commercial';
   if (value.startsWith('rural')) return 'rural';
   if (value.startsWith('land') || value.startsWith('vacant')) return 'land';
   return 'residential';
@@ -167,18 +185,12 @@ function mapLandSizeUnit(value: unknown): Listing['landSizeUnit'] {
  * `collectUnmappedKeys` to report what a real payload carries that we ignore.
  */
 const CONSUMED_KEYS = new Set([
-  'id', 'listingId', 'externalId', 'uniqueId', 'uniqueID',
-  'type', 'listingType', 'status', 'marketingStatus',
-  'propertyType', 'propertyCategory', 'property',
-  'displayAddress', 'address', 'suburb', 'state', 'postcode',
-  'unitNum', 'unitNumber', 'streetNum', 'streetNumber', 'streetName', 'street', 'streetType',
-  'latitude', 'longitude', 'location', 'geoLocation',
-  'searchPrice', 'displayPrice', 'priceText', 'priceSearchable', 'hidePrice', 'displayPriceType',
-  'bedrooms', 'bathrooms', 'totalParking', 'carspaces', 'landArea',
-  'mainHeadline', 'headline', 'mainDescription', 'description',
-  'features', 'media', 'images', 'mainImage', 'floorplans', 'videoLink', 'videoUrl',
-  'office', 'officeId', 'relatedStaffMembers', 'members',
-  'listedDate', 'soldDate', 'lastModified', 'firstCreated',
+  'id', 'externalId', 'type', 'status', 'marketingStatus',
+  'property', 'officeId', 'officeName', 'relatedStaffMembers',
+  'displayPrice', 'searchPrice', 'searchWeeklyRent', 'displayRent', 'listedRent',
+  'mainHeadline', 'mainDescription', 'images', 'floorplans',
+  'listedDate', 'soldDate', 'leasedDate', 'lastModified', 'firstCreated',
+  'webLink', 'hiddenListing', 'offMarketListing',
 ]);
 
 /**
@@ -204,46 +216,78 @@ export function mapListing(raw: unknown): Listing {
     throw new Error(`Agentbox listing has no id. Keys: ${Object.keys(raw).join(', ')}`);
   }
 
-  const suburb = asString(pick(raw, 'property.suburb.name', 'property.suburb', 'suburb.name', 'suburb')) ?? '';
-  const state = asString(pick(raw, 'property.suburb.state', 'property.state', 'suburb.state', 'state')) ?? '';
-  const postcode = asString(pick(raw, 'property.suburb.postcode', 'property.postcode', 'suburb.postcode', 'postcode'));
+  /*
+   * Address lives under `property.address`, confirmed against the payload.
+   * Nothing sits at the top level, and `property.suburb` does not exist — an
+   * earlier guess that made every record throw "no usable address".
+   */
+  const address = at(raw, 'property.address');
 
-  const unitNumber = asString(pick(raw, 'property.unitNum', 'unitNum', 'unitNumber'));
-  const streetNumber = asString(pick(raw, 'property.streetNum', 'streetNum', 'streetNumber'));
-  const streetName = asString(pick(raw, 'property.streetName', 'streetName'));
-  const streetType = asString(pick(raw, 'property.streetType', 'streetType'));
+  const suburb = asString(pick(address, 'suburb')) ?? '';
+  const state = asString(pick(address, 'state')) ?? '';
+  const postcode = asString(pick(address, 'postcode'));
+
+  const unitNumber = asString(pick(address, 'unitNum'));
+  const streetNumber = asString(pick(address, 'streetNum'));
+  const streetName = asString(pick(address, 'streetName'));
+  const streetType = asString(pick(address, 'streetType'));
   const street = [streetName, streetType].filter(Boolean).join(' ') || null;
 
-  const displayAddress =
-    asString(pick(raw, 'property.displayAddress', 'displayAddress', 'property.address', 'address')) ??
-    buildAddress(unitNumber, streetNumber, street, suburb);
+  /*
+   * `hideAddress` is the vendor withholding the street, not the listing. The
+   * suburb still publishes — that is the whole point of an off-market-address
+   * listing — so it degrades to the locality rather than being dropped.
+   */
+  const hideAddress = asBoolean(pick(address, 'hideAddress')) ?? false;
+  const streetAddress = asString(pick(address, 'streetAddress'));
+
+  const displayAddress = hideAddress
+    ? [suburb, state].filter(Boolean).join(' ')
+    : (streetAddress
+        ? [streetAddress, suburb].filter(Boolean).join(', ')
+        : buildAddress(unitNumber, streetNumber, street, suburb));
 
   if (displayAddress === '') {
     throw new Error(`Agentbox listing ${listingId} has no usable address`);
   }
 
-  const priceValue = asNumber(pick(raw, 'searchPrice', 'property.searchPrice'));
-  const priceDisplay = asString(pick(raw, 'displayPrice', 'priceText', 'property.displayPrice')) ?? '';
+  const status = mapStatus(pick(raw, 'type'), pick(raw, 'marketingStatus', 'status'));
+  const isRental = status === 'forRent' || status === 'leased';
 
-  // Two ways a vendor hides a price: an explicit flag, or no display text at
-  // all. Treated as hidden either way — showing a bare number the vendor chose
-  // not to publish is the failure mode that matters.
-  const explicitHidden = asBoolean(pick(raw, 'hidePrice', 'property.hidePrice'));
-  const explicitSearchable = asBoolean(pick(raw, 'priceSearchable', 'property.priceSearchable'));
-  const priceSearchable =
-    explicitSearchable ?? (explicitHidden === null ? priceValue !== null : !explicitHidden);
+  /*
+   * Sales quote `searchPrice`; rentals quote `searchWeeklyRent` and leave
+   * `searchPrice` as the string "0". Reading the wrong one prices every rental
+   * at zero, so the two are kept apart and a literal 0 is treated as absent.
+   */
+  const rawPrice = isRental
+    ? pick(raw, 'searchWeeklyRent', 'listedRent.value')
+    : pick(raw, 'searchPrice');
+  const parsedPrice = asNumber(rawPrice);
+  const priceValue = parsedPrice === 0 ? null : parsedPrice;
 
-  const landSize = asNumber(pick(raw, 'property.landArea.value', 'landArea.value', 'property.landArea', 'landArea'));
+  const priceDisplay =
+    asString(pick(raw, 'displayPrice', 'displayRent.value')) ?? '';
+
+  /*
+   * Display and filterability are separate concerns, and `searchPrice` is
+   * Agentbox's answer to exactly that: `displayPrice` reads "confidential" or
+   * "Over $635,000" while `searchPrice` carries the number the listing should
+   * still be found by. So this tracks whether there is a usable figure, not
+   * whether the vendor chose to print one.
+   */
+  const priceSearchable = priceValue !== null;
+
+  const landSize = asNumber(pick(raw, 'property.landArea.value'));
 
   return {
     listingId,
-    uniqueId: asString(pick(raw, 'externalId', 'uniqueId', 'uniqueID', 'property.externalId')),
-    slug: `${slugify(displayAddress)}-${slugify(suburb)}-${listingId}`.replace(/-+/g, '-'),
-    status: mapStatus(pick(raw, 'type', 'listingType'), pick(raw, 'marketingStatus', 'status')),
+    uniqueId: asString(pick(raw, 'externalId')),
+    slug: `${slugify(displayAddress)}-${listingId}`.replace(/-+/g, '-'),
+    status,
 
     // The crossover described on `mapCategory`.
-    propertyType: asString(pick(raw, 'propertyCategory', 'property.type', 'property.propertyCategory')) ?? 'Unknown',
-    category: mapCategory(pick(raw, 'propertyType', 'property.propertyType')),
+    propertyType: asString(pick(raw, 'property.category')) ?? 'Unknown',
+    category: mapCategory(pick(raw, 'property.type')),
 
     unitNumber,
     streetNumber,
@@ -253,32 +297,36 @@ export function mapListing(raw: unknown): Listing {
     postcode,
     displayAddress,
 
-    latitude: asNumber(pick(raw, 'property.location.lat', 'property.latitude', 'latitude', 'location.lat')),
-    longitude: asNumber(pick(raw, 'property.location.long', 'property.longitude', 'longitude', 'location.long')),
+    latitude: asNumber(pick(raw, 'property.location.lat')),
+    longitude: asNumber(pick(raw, 'property.location.long')),
 
     priceValue,
     priceDisplay,
     priceSearchable,
 
-    bedrooms: asNumber(pick(raw, 'property.bedrooms', 'bedrooms')),
-    bathrooms: asNumber(pick(raw, 'property.bathrooms', 'bathrooms')),
-    carspaces: asNumber(pick(raw, 'property.totalParking', 'totalParking', 'carspaces')),
+    bedrooms: asNumber(pick(raw, 'property.bedrooms')),
+    bathrooms: asNumber(pick(raw, 'property.bathrooms')),
+    carspaces: asNumber(pick(raw, 'property.totalParking')),
     landSize,
-    landSizeUnit: landSize === null ? null : mapLandSizeUnit(pick(raw, 'property.landArea.unit', 'landArea.unit')),
+    landSizeUnit: landSize === null ? null : mapLandSizeUnit(pick(raw, 'property.landArea.unit')),
 
-    headline: asString(pick(raw, 'mainHeadline', 'headline')) ?? '',
-    description: asString(pick(raw, 'mainDescription', 'description')) ?? '',
-    features: mapFeatures(pick(raw, 'property.features', 'features')),
+    headline: asString(pick(raw, 'mainHeadline')) ?? '',
+    // Present on /listings only when named in `include`; always on the detail
+    // endpoint.
+    description: asString(pick(raw, 'mainDescription')) ?? '',
+    features: mapFeatures(pick(raw, 'property.features')),
 
-    images: mapImages(pick(raw, 'media', 'images')),
-    floorplans: mapFloorplans(pick(raw, 'media', 'floorplans')),
-    videoUrl: asString(pick(raw, 'videoLink', 'videoUrl', 'property.videoLink')),
+    // `images` is absent from the list endpoint entirely — no `include` value
+    // adds it. A list-only sync yields empty arrays here, by design.
+    images: mapImages(pick(raw, 'images')),
+    floorplans: mapFloorplans(pick(raw, 'floorplans')),
+    videoUrl: asString(pick(raw, 'videoLink', 'videoUrl')),
 
-    officeId: asString(pick(raw, 'office.id', 'officeId')) ?? '',
-    agentIds: mapAgentIds(pick(raw, 'relatedStaffMembers', 'members')),
+    officeId: asString(pick(raw, 'officeId')) ?? '',
+    agentIds: mapAgentIds(pick(raw, 'relatedStaffMembers')),
 
-    listedAt: asIsoDate(pick(raw, 'listedDate', 'firstCreated')),
-    soldAt: asIsoDate(pick(raw, 'soldDate', 'property.soldDate')),
+    listedAt: asIsoDate(pick(raw, 'listedDate', 'onMarketDate', 'firstCreated')),
+    soldAt: asIsoDate(pick(raw, 'soldDate', 'leasedDate')),
     modifiedAt: asIsoDate(pick(raw, 'lastModified', 'firstCreated')) ?? new Date(0).toISOString(),
   };
 }
@@ -300,30 +348,39 @@ function mapFeatures(value: unknown): string[] {
 }
 
 /**
- * Images require `include=images` on the request; without it this returns an
- * empty array rather than failing, so a listing still renders.
+ * Image records are `{ id, title, url, thumbnails[], order }`. `order` arrives
+ * as a string ("1"), and the array is not guaranteed sorted.
  *
- * Floorplans appear to live in the same `media` collection under a type
- * discriminator, so both mappers filter the same input.
+ * `thumbnails` carries pre-rendered sizes (a: 480², b/c/d: 800×600). Only the
+ * full-size `url` is kept — the card renders one image and the schema has no
+ * column for a size set. The untouched record survives in `raw_payload`, so
+ * adding responsive sources later needs no re-fetch.
  */
 function mapImages(value: unknown): Listing['images'] {
   return asArray(value)
     .filter((entry) => !isFloorplan(entry))
     .map((entry, index) => ({
-      url: asString(pick(entry, 'url', 'link', 'href', 'original')) ?? '',
-      order: asNumber(pick(entry, 'order', 'position', 'sortOrder')) ?? index,
-      caption: asString(pick(entry, 'caption', 'title', 'description')),
+      url: asString(pick(entry, 'url')) ?? '',
+      order: asNumber(pick(entry, 'order')) ?? index,
+      caption: asString(pick(entry, 'title', 'caption')),
     }))
     .filter((image) => image.url !== '')
     .sort((a, b) => a.order - b.order);
 }
 
+/**
+ * No floorplan collection has appeared on any sampled payload — not on the
+ * list endpoint, not on the detail endpoint. This stays wired to a `floorplans`
+ * key and a type discriminator so an instance that does carry them maps
+ * without a code change, and yields an empty array on one that does not.
+ */
 function mapFloorplans(value: unknown): Listing['floorplans'] {
+  // Every entry under a dedicated `floorplans` key is one; no discriminator to
+  // filter on, unlike the mixed-media collection this used to assume.
   return asArray(value)
-    .filter(isFloorplan)
     .map((entry, index) => ({
-      url: asString(pick(entry, 'url', 'link', 'href', 'original')) ?? '',
-      order: asNumber(pick(entry, 'order', 'position', 'sortOrder')) ?? index,
+      url: asString(pick(entry, 'url')) ?? '',
+      order: asNumber(pick(entry, 'order')) ?? index,
     }))
     .filter((plan) => plan.url !== '')
     .sort((a, b) => a.order - b.order);
@@ -334,12 +391,102 @@ function isFloorplan(entry: unknown): boolean {
   return type.includes('floor');
 }
 
+/**
+ * `relatedStaffMembers` entries wrap the person: `{ webDisplay, displayOrder,
+ * role, staffMember: { id, … } }`. The ID is one level down — reading `id` off
+ * the wrapper, as this once did, returns nothing at all.
+ *
+ * Ordered by `displayOrder`, so position 0 is the listing's lead agent, which
+ * is the one the card renders.
+ */
 function mapAgentIds(value: unknown): string[] {
-  const ids = asArray(value)
-    .map((entry) => asString(typeof entry === 'object' ? pick(entry, 'id', 'staffId', 'memberId') : entry))
-    .filter((id): id is string => id !== null);
+  const entries = asArray(value)
+    .map((entry) => ({
+      id: asString(pick(entry, 'staffMember.id', 'id')),
+      order: asNumber(pick(entry, 'displayOrder')) ?? Number.MAX_SAFE_INTEGER,
+      webDisplay: asBoolean(pick(entry, 'webDisplay')) ?? true,
+    }))
+    .filter((entry): entry is { id: string; order: number; webDisplay: boolean } => entry.id !== null)
+    // A staff member flagged off the web is not published against the listing.
+    .filter((entry) => entry.webDisplay)
+    .sort((a, b) => a.order - b.order);
 
-  return [...new Set(ids)];
+  return [...new Set(entries.map((entry) => entry.id))];
+}
+
+/**
+ * The staff records embedded in a listing, as `agents` table rows.
+ *
+ * Agentbox returns the whole person inline with the listing, so a sync gets the
+ * agent directory for free and never needs `/staff`. Without this the cards
+ * render every listing as "Stone" with no phone — the query joins `agents` on
+ * `listing_agents`, and IDs alone satisfy neither side.
+ */
+export function mapStaffMembers(raw: unknown): SourceAgent[] {
+  return asArray(at(raw, 'relatedStaffMembers'))
+    .map((entry): SourceAgent | null => {
+      const member = at(entry, 'staffMember');
+      const agentId = asString(pick(member, 'id'));
+      if (agentId === null) return null;
+
+      const firstName = asString(pick(member, 'firstName'));
+      const lastName = asString(pick(member, 'lastName'));
+      const hideMobile = asBoolean(pick(member, 'hideMobileOnWeb')) ?? false;
+
+      const fullName = [firstName, lastName].filter(Boolean).join(' ') || null;
+
+      return {
+        agentId,
+        slug: directorySlug(fullName, agentId),
+        firstName,
+        lastName,
+        fullName,
+        officeId: asString(pick(member, 'officeId')),
+        // `hideMobileOnWeb` is a publication rule, so the mobile is dropped at
+        // the mapping rather than filtered at render — it never reaches the
+        // database to be leaked by a later query.
+        phone: (hideMobile ? null : asString(pick(member, 'mobile'))) ?? asString(pick(member, 'phone')),
+        email: asString(pick(member, 'email')),
+        photoUrl: asString(pick(member, 'photo', 'photoUrl', 'imageUrl')),
+        // The embedded staff record carries none of these. A `/staff` sync
+        // fills them; until one runs, an agent has a name and a contact and is
+        // not publishable by the directory rule, which is the safe default.
+        jobTitle: asString(pick(member, 'jobTitle')),
+        role: asString(pick(member, 'role')),
+        status: asString(pick(member, 'status')),
+        profile: null,
+        specialistAreas: [],
+        webDisplay: mapWebDisplay(pick(member, 'webDisplay')),
+      };
+    })
+    .filter((staff): staff is SourceAgent => staff !== null);
+}
+
+/** The office a listing belongs to, as an `offices` table row. */
+export function mapOffice(raw: unknown): SourceOffice | null {
+  const officeId = asString(pick(raw, 'officeId'));
+  if (officeId === null) return null;
+
+  const name = asString(pick(raw, 'officeName')) ?? officeId;
+
+  return {
+    officeId,
+    name,
+    slug: directorySlug(name, officeId),
+    // The listing payload names the office and nothing more. These columns
+    // exist on the table and stay null until a `/offices` sync fills them.
+    streetAddress: null,
+    suburb: null,
+    state: null,
+    postcode: null,
+    country: null,
+    phone: null,
+    email: null,
+    website: null,
+    latitude: null,
+    longitude: null,
+    status: null,
+  };
 }
 
 /**
@@ -355,4 +502,122 @@ export function collectUnmappedKeys(raw: unknown): string[] {
   return Object.keys(raw as Raw)
     .filter((key) => !CONSUMED_KEYS.has(key))
     .sort();
+}
+
+/* ------------------------------------------------------- directory records -- */
+
+/*
+ * The office and staff endpoints, mapped.
+ *
+ * These are separate from `mapOffice` and `mapStaffMembers` above, which read
+ * what the *listing* payload embeds — an office name, and a staff member's
+ * name, phone and email. `/offices` and `/staff` return substantially more, and
+ * every field below was confirmed against the sandbox by
+ * `scripts/probe-directory.ts` rather than guessed from the reference, which
+ * documents both responses as empty objects.
+ */
+
+/**
+ * Fields that must never leave the boundary.
+ *
+ * `/staff/{id}` returns an employee's date of birth and home address. Nothing
+ * on a property website has any use for either, and the surest way to keep them
+ * off a page is to never let them into the object that becomes a database row.
+ * This is an allowlist by construction — `mapStaffRecord` names the fields it
+ * wants, so a field added by Reapit later is dropped by default rather than
+ * silently persisted.
+ */
+export const STAFF_FIELDS_NEVER_STORED = [
+  'dateOfBirth', 'homeAddress', 'licenceNumber', 'corporateLicenceNumber',
+  'licenceExpiryDate', 'corporateLicenceExpiryDate', 'startDate', 'financeId',
+] as const;
+
+/** A directory slug: readable, and suffixed with the ID so it stays unique. */
+function directorySlug(name: string | null, id: string): string {
+  const stem = slugify(name ?? '');
+  return (stem === '' ? slugify(id) : `${stem}-${slugify(id)}`).replace(/-+/g, '-');
+}
+
+/**
+ * One `/offices` record.
+ *
+ * The address arrives as a nested object rather than the flat fields the
+ * listing payload uses, which is why this cannot reuse `mapOffice`.
+ */
+export function mapOfficeRecord(raw: unknown): SourceOffice | null {
+  const officeId = asString(pick(raw, 'id', 'officeId'));
+  if (officeId === null) return null;
+
+  const name = asString(pick(raw, 'name', 'officeName', 'tradingName')) ?? officeId;
+
+  return {
+    officeId,
+    name,
+    slug: directorySlug(name, officeId),
+    streetAddress: asString(at(raw, 'address.streetAddress')),
+    suburb: asString(at(raw, 'address.suburb')),
+    state: asString(at(raw, 'address.state')),
+    postcode: asString(at(raw, 'address.postcode')),
+    country: asString(at(raw, 'address.country')),
+    phone: asString(pick(raw, 'phone')),
+    email: asString(pick(raw, 'email')),
+    website: asString(pick(raw, 'website')),
+    latitude: asNumber(at(raw, 'location.lat')),
+    longitude: asNumber(at(raw, 'location.long')),
+    status: asString(pick(raw, 'status')),
+  };
+}
+
+/**
+ * `webDisplay` arrives as `[{"name":"Our Staff"}, …]`.
+ *
+ * Flattened to the names, because the shape carries nothing else and a plain
+ * string array is what the publication rule actually asks questions of.
+ */
+function mapWebDisplay(value: unknown): string[] {
+  return asArray(value)
+    .map((entry) => asString(pick(entry, 'name')) ?? asString(entry))
+    .filter((name): name is string => name !== null && name !== '');
+}
+
+/**
+ * One `/staff` or `/staff/{id}` record.
+ *
+ * Reads only the fields named here. Anything else the endpoint returns —
+ * including the personal data in `STAFF_FIELDS_NEVER_STORED` — is dropped.
+ */
+export function mapStaffRecord(raw: unknown): SourceAgent | null {
+  const agentId = asString(pick(raw, 'id', 'agentId'));
+  if (agentId === null) return null;
+
+  const firstName = asString(pick(raw, 'firstName'));
+  const lastName = asString(pick(raw, 'lastName'));
+  const fullName = [firstName, lastName].filter(Boolean).join(' ') || null;
+
+  // `hideMobileOnWeb` is a publication rule, so the mobile is dropped here
+  // rather than filtered at render — it never reaches the database to be
+  // leaked by a later query.
+  const hideMobile = asBoolean(pick(raw, 'hideMobileOnWeb')) ?? false;
+
+  return {
+    agentId,
+    slug: directorySlug(fullName, agentId),
+    firstName,
+    lastName,
+    fullName,
+    officeId: asString(pick(raw, 'officeId')),
+    phone: (hideMobile ? null : asString(pick(raw, 'mobile'))) ?? asString(pick(raw, 'phone')),
+    email: asString(pick(raw, 'email')),
+    // No photo field exists on either staff endpoint. Kept for the fixture
+    // source, which does supply one.
+    photoUrl: asString(pick(raw, 'photo', 'photoUrl', 'imageUrl')),
+    jobTitle: asString(pick(raw, 'jobTitle')),
+    role: asString(pick(raw, 'role')),
+    status: asString(pick(raw, 'status')),
+    profile: asString(pick(raw, 'profile')),
+    specialistAreas: asArray(pick(raw, 'specialistAreas'))
+      .map((entry) => asString(pick(entry, 'name')) ?? asString(entry))
+      .filter((name): name is string => name !== null && name !== ''),
+    webDisplay: mapWebDisplay(pick(raw, 'webDisplay')),
+  };
 }

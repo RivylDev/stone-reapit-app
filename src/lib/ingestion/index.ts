@@ -18,6 +18,22 @@ export interface CreateListingSourceOptions {
     apiKey?: string;
     /** The client ID must decode to a sandbox instance unless this is set. */
     allowProduction?: boolean;
+    /**
+     * Follow each listing with a detail fetch. Only the detail endpoint carries
+     * `images` and a numeric price, so this is on unless speed matters more
+     * than completeness. Costs one request per listing.
+     */
+    hydrate?: boolean;
+    /** Detail fetches in flight at once while hydrating. */
+    concurrency?: number;
+    /**
+     * `marketingStatus` values to accept. Defaults to the on-market set —
+     * most of an Agentbox instance is unpublishable appraisal records. An
+     * empty array takes the instance unfiltered.
+     */
+    marketingStatuses?: string[];
+    /** Progress callback for the hydration walk. */
+    onProgress?: (done: number, total: number) => void;
   };
 }
 
@@ -30,10 +46,10 @@ export interface CreateListingSourceOptions {
  * entire point of the arrangement.
  *
  * **It returns `MockSource` unless Agentbox is explicitly switched on.** The
- * Agentbox path is written but its response mapping has never been checked
- * against a real payload (see the banner on `agentbox-mapping.ts`), so it must
- * not become the default by accident. Opting in is a deliberate act with
- * credentials in hand.
+ * mapping is now verified against real payloads, so this is no longer about
+ * trust — it is that the fixture source needs no credentials and no network,
+ * which is what keeps tests and a fresh checkout working. Opting in is a
+ * deliberate act with credentials in hand.
  */
 export function createListingSource(options: CreateListingSourceOptions | string = {}): ListingSource {
   // Kept callable as `createListingSource('/some/dir')`, which is how the seed
@@ -53,6 +69,10 @@ export function createListingSource(options: CreateListingSourceOptions | string
     return new AgentboxSource({
       credentials: { clientId: agentbox.clientId, apiKey: agentbox.apiKey },
       allowProduction: agentbox.allowProduction ?? false,
+      hydrate: agentbox.hydrate,
+      concurrency: agentbox.concurrency,
+      marketingStatuses: agentbox.marketingStatuses,
+      onProgress: agentbox.onProgress,
     });
   }
 

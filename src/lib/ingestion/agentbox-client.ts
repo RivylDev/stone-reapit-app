@@ -12,6 +12,13 @@
 
 export const AGENTBOX_BASE_URL = 'https://api.agentboxcrm.com.au';
 
+/**
+ * Every request must carry a `version` in the query string. Omitting it is not
+ * a default — the API answers HTTP 300 "Invalid Version" and names the versions
+ * it accepts, currently 1 and 2. 2 is the current one.
+ */
+export const AGENTBOX_API_VERSION = 2;
+
 export interface AgentboxCredentials {
   /** Sent as `X-Client-ID`. Base64 of the Agentbox admin URL — it selects the environment. */
   clientId: string;
@@ -24,6 +31,8 @@ export interface AgentboxClientOptions {
   baseUrl?: string;
   /** Injectable for tests. Defaults to global `fetch`. */
   fetchImpl?: typeof fetch;
+  /** Query-string API version. Defaults to `AGENTBOX_API_VERSION`. */
+  version?: number;
   /** Retries on 429 and 5xx only. Defaults to 3. */
   maxRetries?: number;
   /** Base backoff in ms, doubled per attempt. Defaults to 500. */
@@ -81,6 +90,7 @@ export class AgentboxClient {
   readonly #credentials: AgentboxCredentials;
   readonly #baseUrl: string;
   readonly #fetch: typeof fetch;
+  readonly #version: number;
   readonly #maxRetries: number;
   readonly #retryBaseMs: number;
 
@@ -100,6 +110,7 @@ export class AgentboxClient {
     this.#credentials = credentials;
     this.#baseUrl = (options.baseUrl ?? AGENTBOX_BASE_URL).replace(/\/$/, '');
     this.#fetch = options.fetchImpl ?? globalThis.fetch;
+    this.#version = options.version ?? AGENTBOX_API_VERSION;
     this.#maxRetries = options.maxRetries ?? 3;
     this.#retryBaseMs = options.retryBaseMs ?? 500;
 
@@ -200,6 +211,9 @@ export class AgentboxClient {
 
   #buildUrl(path: string, query: AgentboxQuery): string {
     const url = new URL(`${this.#baseUrl}/${path.replace(/^\//, '')}`);
+
+    // Set before the caller's query, so an explicit `version` still wins.
+    url.searchParams.set('version', String(this.#version));
 
     for (const [key, value] of Object.entries(query)) {
       if (value === undefined) continue;

@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { Listing } from '../types/listing.ts';
+import { slugify } from './agentbox-mapping.ts';
+import type { SourceAgent, SourceOffice } from './source.ts';
 
 /**
  * Reads the seed fixtures off disk.
@@ -19,6 +21,7 @@ const LISTINGS_FILE = 'seed-listings.dev.json';
 const OFFICES_FILE = 'seed-offices.dev.json';
 const AGENTS_FILE = 'seed-agents.dev.json';
 
+/** The fixture shapes. Narrower than the source types they widen into. */
 export interface SeedOffice {
   officeId: string;
   name: string;
@@ -59,10 +62,41 @@ export function loadSeedListings(rootDir = process.cwd()): Listing[] {
   return readRecords<Listing>(LISTINGS_FILE, rootDir);
 }
 
-export function loadSeedOffices(rootDir = process.cwd()): SeedOffice[] {
-  return readRecords<SeedOffice>(OFFICES_FILE, rootDir);
+/*
+ * The fixtures predate the office and staff endpoints, so they carry the narrow
+ * shape. Both loaders widen to the full `SourceOffice` / `SourceAgent` on the
+ * way out, defaulting the fields a fixture has no answer for — so a fresh
+ * checkout with no credentials still loads, and the directory pages simply find
+ * nobody publishable rather than failing.
+ */
+
+export function loadSeedOffices(rootDir = process.cwd()): SourceOffice[] {
+  return readRecords<SeedOffice>(OFFICES_FILE, rootDir).map((office) => ({
+    ...office,
+    slug: `${slugify(office.name)}-${slugify(office.officeId)}`.replace(/-+/g, '-'),
+    streetAddress: null,
+    country: null,
+    website: null,
+    latitude: null,
+    longitude: null,
+    status: 'Active',
+  }));
 }
 
-export function loadSeedAgents(rootDir = process.cwd()): SeedAgent[] {
-  return readRecords<SeedAgent>(AGENTS_FILE, rootDir);
+export function loadSeedAgents(rootDir = process.cwd()): SourceAgent[] {
+  return readRecords<SeedAgent>(AGENTS_FILE, rootDir).map((agent) => ({
+    ...agent,
+    slug: `${slugify(agent.fullName ?? '')}-${slugify(agent.agentId)}`.replace(/-+/g, '-'),
+    jobTitle: null,
+    /*
+     * The fixtures describe sales agents, so they are given the role and the
+     * flag that make them publishable. Without this the synthetic directory
+     * would be empty and there would be nothing to develop the pages against.
+     */
+    role: 'Sales Representative',
+    status: 'Active',
+    profile: null,
+    specialistAreas: [],
+    webDisplay: [],
+  }));
 }
