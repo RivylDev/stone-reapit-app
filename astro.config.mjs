@@ -6,7 +6,7 @@ import react from '@astrojs/react';
 
 // https://astro.build/config
 export default defineConfig({
-  base: "CLOUD_MOUNT_PATH",
+  base: "/staging",
   output: "server",
   compressHTML: true,
   adapter: cloudflare({

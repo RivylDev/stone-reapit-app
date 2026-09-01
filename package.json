@@ -19,8 +19,10 @@
     "fixtures": "node scripts/generate-dev-fixtures.mjs",
     "db:migrate": "wrangler d1 migrations apply stone-listings --local",
     "db:seed": "node --experimental-strip-types scripts/seed-d1.ts",
+    "db:seed:agentbox": "node --experimental-strip-types scripts/seed-d1.ts --agentbox",
     "agentbox:probe": "node --experimental-strip-types scripts/probe-agentbox.ts",
-    "test": "node --experimental-strip-types --test 'src/**/*.test.ts'",
+    "agentbox:verify": "node --experimental-strip-types --experimental-sqlite scripts/verify-agentbox.ts",
+    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -34,6 +36,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250415.0",
+    "@webflow/react": "^2.2.0",
     "@webflow/webflow-cli": "^2.4.0",
     "wrangler": "^4.83.0"
   }

@@ -1,0 +1,87 @@
+/*
+ * Styling for the PropertySearch code component.
+ *
+ * CSS Modules, so class names are hashed at build and cannot collide with the
+ * Webflow page this lands on. Colours come from the Stone design tokens the
+ * site already defines; the fallbacks after each `var()` keep the panel legible
+ * if it is placed on a page that does not load them.
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--_stone-tokens---border, #e0e0e0);
+  border-radius: var(--_stone-tokens---radius-md, 8px);
+  background: var(--_stone-tokens---surface, #fff);
+  color: var(--_stone-tokens---ink, #171717);
+  font: inherit;
+}
+
+.heading {
+  margin: 0;
+  font-size: 1.125rem;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--_stone-tokens---ink-muted, #666);
+}
+
+.input,
+.select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--_stone-tokens---border, #e0e0e0);
+  border-radius: var(--_stone-tokens---radius-sm, 4px);
+  background: var(--_stone-tokens---surface, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.input:focus-visible,
+.select:focus-visible,
+.submit:focus-visible {
+  outline: 2px solid var(--_stone-tokens---action, #1a1a1a);
+  outline-offset: 1px;
+}
+
+.pair {
+  display: flex;
+  gap: 8px;
+}
+
+.pair .select {
+  flex: 1;
+  min-width: 0;
+}
+
+.submit {
+  align-self: start;
+  padding: 10px 24px;
+  border: 0;
+  border-radius: var(--_stone-tokens---radius-sm, 4px);
+  background: var(--_stone-tokens---action, #1a1a1a);
+  color: var(--_stone-tokens---action-text, #fff);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}

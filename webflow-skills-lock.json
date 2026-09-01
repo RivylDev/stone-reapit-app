@@ -1,0 +1,101 @@
+{
+  "lockfileVersion": 1,
+  "skills": {
+    "webflow-cli:code-component": {
+      "agents": [
+        "amp",
+        "antigravity",
+        "antigravity-cli",
+        "cline",
+        "codex",
+        "cursor",
+        "deepagents",
+        "dexto",
+        "firebender",
+        "gemini-cli",
+        "github-copilot",
+        "kimi-code-cli",
+        "loaf",
+        "opencode",
+        "promptscript",
+        "replit",
+        "universal",
+        "warp",
+        "zed"
+      ],
+      "commit": "0c2b0629abf4aeeae9bb93ac901d02f41c4de191",
+      "contentHash": "sha256:208dfba03de7db3295c0639417a9591128d9cc19318b97a53adfcbd529bd9f2c",
+      "dir": "webflow-cli-code-component",
+      "mode": "symlink",
+      "modeHash": "sha256:5f094629a340e5e960853388c8c0205faf41683c0de73a915986ee95b62033f1",
+      "ref": "main",
+      "skillPath": "plugins/webflow-skills/skills/code-component-command/SKILL.md"
+    },
+    "webflow-code-component:component-scaffold": {
+      "agents": [
+        "amp",
+        "antigravity",
+        "antigravity-cli",
+        "cline",
+        "codex",
+        "cursor",
+        "deepagents",
+        "dexto",
+        "firebender",
+        "gemini-cli",
+        "github-copilot",
+        "kimi-code-cli",
+        "loaf",
+        "opencode",
+        "promptscript",
+        "replit",
+        "universal",
+        "warp",
+        "zed"
+      ],
+      "commit": "0c2b0629abf4aeeae9bb93ac901d02f41c4de191",
+      "contentHash": "sha256:67b70d3ce0f3e72cb4a994dedfc28b6d4a6943aa75baed50151c57832a063400",
+      "dir": "webflow-code-component-component-scaffold",
+      "mode": "symlink",
+      "modeHash": "sha256:5f094629a340e5e960853388c8c0205faf41683c0de73a915986ee95b62033f1",
+      "ref": "main",
+      "skillPath": "plugins/webflow-skills/skills/component-scaffold/SKILL.md"
+    },
+    "webflow-code-component:deploy-guide": {
+      "agents": [
+        "amp",
+        "antigravity",
+        "antigravity-cli",
+        "cline",
+        "codex",
+        "cursor",
+        "deepagents",
+        "dexto",
+        "firebender",
+        "gemini-cli",
+        "github-copilot",
+        "kimi-code-cli",
+        "loaf",
+        "opencode",
+        "promptscript",
+        "replit",
+        "universal",
+        "warp",
+        "zed"
+      ],
+      "commit": "0c2b0629abf4aeeae9bb93ac901d02f41c4de191",
+      "contentHash": "sha256:f8bd83e5349f9e14ca3c0ee6ba801115f97f06c2ba3cce7e52fbad42bfcae091",
+      "dir": "webflow-code-component-deploy-guide",
+      "mode": "symlink",
+      "modeHash": "sha256:5f094629a340e5e960853388c8c0205faf41683c0de73a915986ee95b62033f1",
+      "ref": "main",
+      "skillPath": "plugins/webflow-skills/skills/deploy-guide/SKILL.md"
+    }
+  },
+  "source": {
+    "commit": "0c2b0629abf4aeeae9bb93ac901d02f41c4de191",
+    "pluginVersion": "1.0.7",
+    "ref": "main",
+    "repo": "webflow/webflow-skills"
+  }
+}

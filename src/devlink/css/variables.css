@@ -1,0 +1,58 @@
+:root {
+  --color-scheme-1--background: var(--_primitives---colors--white);
+  --_typography---font-styles--body: system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell,
+    "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --color-scheme-1--text: var(--_primitives---colors--neutral-darkest);
+  --_typography---font-styles--heading: system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell,
+    "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --_stone-tokens---border: #d4d4d4;
+  --_stone-tokens---radius-md: 10px;
+  --_stone-tokens---surface: #ffffff;
+  --_stone-tokens---radius-sm: 6px;
+  --_stone-tokens---placeholder: #d9d9d9;
+  --_stone-tokens---surface-subtle: #f2f2f2;
+  --_stone-tokens---ink-muted: #6b6b6b;
+  --_stone-tokens---ink: #111111;
+  --_stone-tokens---space-sm: 12px;
+  --_stone-tokens---action: #000000;
+  --_stone-tokens---action-text: #ffffff;
+  --_stone-tokens---space-xs: 8px;
+  --_stone-tokens---space-md: 20px;
+  --_stone-tokens---space-lg: 40px;
+  --_stone-tokens---container-max: 1140px;
+  --color-scheme-1--foreground: var(--_primitives---colors--neutral-lightest);
+  --color-scheme-1--border: var(--_primitives---colors--neutral-darkest);
+  --color-scheme-1--accent: var(--_primitives---colors--neutral-darkest);
+  --_primitives---colors--white: #fff;
+  --_primitives---colors--neutral-lightest: #eee;
+  --_primitives---colors--neutral-lighter: #ccc;
+  --_primitives---colors--neutral-light: #aaa;
+  --_primitives---colors--neutral: #666;
+  --_primitives---colors--neutral-dark: #444;
+  --_primitives---colors--neutral-darker: #222;
+  --_primitives---colors--neutral-darkest: black;
+  --_primitives---opacity--transparent: transparent;
+  --_primitives---opacity--white-5: hsla(0, 0%, 100%, 0.05);
+  --_primitives---opacity--white-10: hsla(0, 0%, 100%, 0.1);
+  --_primitives---opacity--white-15: hsla(0, 0%, 100%, 0.15);
+  --_primitives---opacity--white-20: hsla(0, 0%, 100%, 0.2);
+  --_primitives---opacity--white-30: hsla(0, 0%, 100%, 0.3);
+  --_primitives---opacity--white-40: hsla(0, 0%, 100%, 0.4);
+  --_primitives---opacity--white-50: hsla(0, 0%, 100%, 0.5);
+  --_primitives---opacity--white-60: hsla(0, 0%, 100%, 0.6);
+  --_primitives---opacity--neutral-darkest-5: hsla(0, 0%, 0%, 0.05);
+  --_primitives---opacity--neutral-darkest-10: hsla(0, 0%, 0%, 0.1);
+  --_primitives---opacity--neutral-darkest-15: hsla(0, 0%, 0%, 0.15);
+  --_primitives---opacity--neutral-darkest-20: hsla(0, 0%, 0%, 0.2);
+  --_primitives---opacity--neutral-darkest-30: hsla(0, 0%, 0%, 0.3);
+  --_primitives---opacity--neutral-darkest-40: hsla(0, 0%, 0%, 0.4);
+  --_primitives---opacity--neutral-darkest-50: hsla(0, 0%, 0%, 0.5);
+  --_primitives---opacity--neutral-darkest-60: hsla(0, 0%, 0%, 0.6);
+  --_ui-styles---radius--large: 0px;
+  --_ui-styles---radius--medium: 0px;
+  --_ui-styles---radius--small: 0px;
+  --_ui-styles---stroke--border-width: 1px;
+  --_ui-styles---stroke--divider-width: 1px;
+}

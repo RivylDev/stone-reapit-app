@@ -8,7 +8,8 @@
     "components": ".*",
     "componentGroups": ".*",
     "ts": true,
-    "relativeHrefRoot": "/"
+    "relativeHrefRoot": "/",
+    "cssScopes": true
   },
   "telemetry": {
     "global": {
@@ -16,5 +17,12 @@
       "lastPrompted": 1786577063718,
       "version": "2.4.0"
     }
+  },
+  "library": {
+    "name": "Stone Listings",
+    "components": [
+      "./src/components/**/*.webflow.tsx"
+    ],
+    "id": "stone-listings"
   }
 }
