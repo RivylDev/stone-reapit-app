@@ -1,0 +1,76 @@
+---
+import { env } from 'cloudflare:workers';
+
+import Layout from '../layouts/Layout.astro';
+import { listOffices, type OfficeSummary } from '../lib/queries/directory';
+import { officeHref } from '../lib/queries/sections';
+import '../styles/directory.css';
+
+/*
+ * The office directory. Server-rendered, no client JavaScript: every office is
+ * a crawlable link, and the addresses are in view-source.
+ */
+export const prerender = false;
+
+const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+const db = env.DB;
+
+let offices: OfficeSummary[] = [];
+let failure: string | null = null;
+
+if (!db) {
+  failure = 'No D1 binding found. Run `npm run db:migrate` and `npm run db:seed`.';
+} else {
+  try {
+    offices = await listOffices(db);
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  }
+}
+
+if (failure) Astro.response.status = 500;
+
+const localityOf = (office: OfficeSummary) =>
+  [office.suburb, office.state, office.postcode].filter(Boolean).join(' ');
+
+const title = 'Our offices — Stone';
+const metaDescription = offices.length > 0
+  ? `Stone has ${offices.length} office${offices.length === 1 ? '' : 's'}. Find contact details and the properties each one is selling.`
+  : 'Stone office locations and contact details.';
+const canonical = `${Astro.url.origin}${base}/offices`;
+---
+
+<Layout title={title} description={metaDescription} canonical={canonical}>
+  <section class="dir-section">
+    <div class="dir-container">
+      <h1 class="dir-title">Our offices</h1>
+
+      {failure && <p class="dir-error">{failure}</p>}
+
+      {!failure && offices.length === 0 && (
+        <p class="dir-empty">
+          No offices have been synced yet. Run <code>npm run db:seed:agentbox</code>
+          to fill the directory.
+        </p>
+      )}
+
+      {offices.length > 0 && (
+        <ul class="dir-grid">
+          {offices.map((office) => (
+            <li class="dir-card">
+              <h2 class="dir-card-title">
+                <a href={officeHref(base, office.slug)}>{office.name}</a>
+              </h2>
+              {localityOf(office) && <p class="dir-card-line">{localityOf(office)}</p>}
+              {office.phone && <p class="dir-card-line">{office.phone}</p>}
+              <p class="dir-card-meta">
+                {office.listingCount} propert{office.listingCount === 1 ? 'y' : 'ies'}
+                {office.agentCount > 0 && ` · ${office.agentCount} agent${office.agentCount === 1 ? '' : 's'}`}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  </section>
+</Layout>

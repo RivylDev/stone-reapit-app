@@ -1,0 +1,197 @@
+---
+import { env } from 'cloudflare:workers';
+
+import Layout from '../../layouts/Layout.astro';
+import { findOfficeBySlug, type OfficeDetail } from '../../lib/queries/directory';
+import { search, DEFAULT_PER_PAGE, type ListingSummary } from '../../lib/queries/listings';
+import {
+  PUBLIC_STATUSES,
+  agentHref,
+  officeHref,
+  officesHref,
+  propertyHref,
+} from '../../lib/queries/sections';
+import '../../styles/directory.css';
+
+export const prerender = false;
+
+const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+const db = env.DB;
+const slug = Astro.params.slug ?? '';
+
+let office: OfficeDetail | null = null;
+let listings: ListingSummary[] = [];
+let failure: string | null = null;
+
+if (!db) {
+  failure = 'No D1 binding found. Run `npm run db:migrate` and `npm run db:seed`.';
+} else {
+  try {
+    office = await findOfficeBySlug(db, slug);
+
+    // Redirect an ID-based URL onto the slug, the same contract the property
+    // page keeps: the ID is stable, the slug is the canonical address.
+    if (office && office.slug !== slug) {
+      return Astro.redirect(officeHref(base, office.slug), 301);
+    }
+
+    if (office) {
+      const outcome = await search(db, {
+        officeId: office.officeId,
+        status: [...PUBLIC_STATUSES],
+        perPage: DEFAULT_PER_PAGE,
+      });
+      listings = outcome.results;
+    }
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  }
+}
+
+if (failure) Astro.response.status = 500;
+else if (!office) Astro.response.status = 404;
+
+const locality = office
+  ? [office.suburb, office.state, office.postcode].filter(Boolean).join(' ')
+  : '';
+const fullAddress = office
+  ? [office.streetAddress, locality].filter(Boolean).join(', ')
+  : '';
+
+const mapHref = office && office.latitude !== null && office.longitude !== null
+  ? `https://www.google.com/maps/search/?api=1&query=${office.latitude},${office.longitude}`
+  : null;
+
+const telHref = (phone: string) => `tel:${phone.replace(/\s+/g, '')}`;
+const websiteHref = (site: string) =>
+  site.startsWith('http') ? site : `https://${site}`;
+
+const title = office
+  ? `${office.name}${locality ? ` — ${locality}` : ''} — Stone`
+  : 'Office not found — Stone';
+const metaDescription = office
+  ? `${office.name}${fullAddress ? `, ${fullAddress}` : ''}. `
+    + `${office.listingCount} propert${office.listingCount === 1 ? 'y' : 'ies'} currently listed.`
+  : undefined;
+const canonical = office ? `${Astro.url.origin}${officeHref(base, office.slug)}` : undefined;
+---
+
+<Layout title={title} description={metaDescription} canonical={canonical}>
+  <section class="dir-section">
+    <div class="dir-container">
+      {failure && <p class="dir-error">{failure}</p>}
+
+      {!failure && !office && (
+        <>
+          <h1 class="dir-title">Office not found</h1>
+          <p class="dir-empty">This office is no longer listed.</p>
+          <a class="dir-back" href={officesHref(base)}>← All offices</a>
+        </>
+      )}
+
+      {office && (
+        <>
+          <nav class="dir-breadcrumb" aria-label="Breadcrumb">
+            <a href={officesHref(base)}>Offices</a>
+            <span aria-hidden="true">/</span>
+            <span aria-current="page">{office.name}</span>
+          </nav>
+
+          <h1 class="dir-title">{office.name}</h1>
+          {fullAddress && <p class="dir-lede">{fullAddress}</p>}
+
+          <div class="dir-detail-layout">
+            <div class="dir-main">
+              {office.agents.length > 0 && (
+                <section aria-labelledby="team-heading" class="dir-main">
+                  <h2 class="dir-heading" id="team-heading">The team</h2>
+                  <ul class="dir-grid">
+                    {office.agents.map((agent) => (
+                      <li class="dir-card dir-card-person">
+                        {agent.photoUrl
+                          ? <img class="dir-avatar" src={agent.photoUrl} alt={agent.fullName} loading="lazy" />
+                          : <div class="dir-avatar" role="presentation"></div>}
+                        <div class="dir-card-person-body">
+                          <h3 class="dir-card-title">
+                            <a href={agentHref(base, agent.slug)}>{agent.fullName}</a>
+                          </h3>
+                          {(agent.jobTitle || agent.role) && (
+                            <p class="dir-card-line">{agent.jobTitle || agent.role}</p>
+                          )}
+                          {agent.phone && (
+                            <p class="dir-card-line">
+                              <a href={telHref(agent.phone)}>{agent.phone}</a>
+                            </p>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {listings.length > 0 && (
+                <section aria-labelledby="listings-heading" class="dir-main">
+                  <h2 class="dir-heading" id="listings-heading">
+                    Properties from this office
+                  </h2>
+                  <ul class="dir-grid">
+                    {listings.map((listing) => (
+                      <li class="dir-card">
+                        <h3 class="dir-card-title">
+                          <a href={propertyHref(base, listing.slug)}>
+                            {listing.streetAddress || listing.displayAddress}
+                          </a>
+                        </h3>
+                        <p class="dir-card-line">{listing.suburb} {listing.state}</p>
+                        <p class="dir-card-meta">{listing.priceDisplay || 'Contact agent'}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
+
+            <aside class="dir-aside">
+              <section class="dir-panel" aria-labelledby="contact-heading">
+                <h2 class="dir-heading" id="contact-heading">Contact this office</h2>
+                {office.phone && (
+                  <p class="dir-card-line"><a href={telHref(office.phone)}>{office.phone}</a></p>
+                )}
+                {office.email && (
+                  <p class="dir-card-line"><a href={`mailto:${office.email}`}>{office.email}</a></p>
+                )}
+                {office.website && (
+                  <p class="dir-card-line">
+                    <a href={websiteHref(office.website)} rel="noopener">{office.website}</a>
+                  </p>
+                )}
+                {mapHref && (
+                  <p class="dir-card-line">
+                    <a href={mapHref} rel="noopener noreferrer" target="_blank">View on map</a>
+                  </p>
+                )}
+              </section>
+
+              <section class="dir-panel" aria-labelledby="office-meta-heading">
+                <h2 class="dir-heading" id="office-meta-heading">At a glance</h2>
+                <dl class="dir-meta">
+                  <div class="dir-meta-row">
+                    <dt>Properties</dt>
+                    <dd>{office.listingCount}</dd>
+                  </div>
+                  <div class="dir-meta-row">
+                    <dt>Agents</dt>
+                    <dd>{office.agentCount}</dd>
+                  </div>
+                </dl>
+              </section>
+            </aside>
+          </div>
+
+          <a class="dir-back" href={officesHref(base)}>← All offices</a>
+        </>
+      )}
+    </div>
+  </section>
+</Layout>

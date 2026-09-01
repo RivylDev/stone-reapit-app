@@ -1,0 +1,89 @@
+---
+import { env } from 'cloudflare:workers';
+
+import Layout from '../layouts/Layout.astro';
+import { listAgents, type AgentSummary } from '../lib/queries/directory';
+import { agentHref, officeHref } from '../lib/queries/sections';
+import '../styles/directory.css';
+
+/*
+ * The agent directory.
+ *
+ * Only staff the publication policy allows appear here — see
+ * `src/lib/directory-policy.ts`. The filter is in the query, not in this
+ * template, so a back-office or integration account has no page to reach even
+ * by guessing a URL.
+ */
+export const prerender = false;
+
+const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+const db = env.DB;
+
+let agents: AgentSummary[] = [];
+let failure: string | null = null;
+
+if (!db) {
+  failure = 'No D1 binding found. Run `npm run db:migrate` and `npm run db:seed`.';
+} else {
+  try {
+    agents = await listAgents(db);
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  }
+}
+
+if (failure) Astro.response.status = 500;
+
+const title = 'Our people — Stone';
+const metaDescription = agents.length > 0
+  ? `Meet the ${agents.length} Stone agents. Contact details and the properties each of them is selling.`
+  : 'The Stone team.';
+const canonical = `${Astro.url.origin}${base}/agents`;
+---
+
+<Layout title={title} description={metaDescription} canonical={canonical}>
+  <section class="dir-section">
+    <div class="dir-container">
+      <h1 class="dir-title">Our people</h1>
+
+      {failure && <p class="dir-error">{failure}</p>}
+
+      {!failure && agents.length === 0 && (
+        <p class="dir-empty">
+          No agents are published yet. A staff sync fills this —
+          run <code>npm run db:seed:agentbox</code>. Staff are only listed when
+          the CRM marks them active and either gives them a public-facing role
+          or flags them for the staff page.
+        </p>
+      )}
+
+      {agents.length > 0 && (
+        <ul class="dir-grid">
+          {agents.map((agent) => (
+            <li class="dir-card dir-card-person">
+              {agent.photoUrl
+                ? <img class="dir-avatar" src={agent.photoUrl} alt={agent.fullName} loading="lazy" />
+                : <div class="dir-avatar" role="presentation"></div>}
+              <div class="dir-card-person-body">
+                <h2 class="dir-card-title">
+                  <a href={agentHref(base, agent.slug)}>{agent.fullName}</a>
+                </h2>
+                {(agent.jobTitle || agent.role) && (
+                  <p class="dir-card-line">{agent.jobTitle || agent.role}</p>
+                )}
+                {agent.officeName && agent.officeSlug && (
+                  <p class="dir-card-line">
+                    <a href={officeHref(base, agent.officeSlug)}>{agent.officeName}</a>
+                  </p>
+                )}
+                <p class="dir-card-meta">
+                  {agent.listingCount} propert{agent.listingCount === 1 ? 'y' : 'ies'}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  </section>
+</Layout>
