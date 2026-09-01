@@ -3,10 +3,19 @@ import { env } from 'cloudflare:workers';
 
 import Layout from '../layouts/Layout.astro';
 /*
- * Stand-in for the DevLink export. When `npm run devlink:export` has run, this
- * becomes `import { ListingCard } from '../devlink';` and nothing else changes.
+ * The real DevLink export, generated from the Webflow component by
+ * `npm run devlink:export`. Its CSS travels with it and must be imported too —
+ * the classes are scoped to a generated wrapper class, so nothing here leaks
+ * into the rest of the site.
  */
-import ListingCard from '../components/ListingCard';
+import { ListingCard } from '../devlink/listings/ListingCard';
+/*
+ * One barrel, not the five files it re-exports. `global.css` wraps each in a
+ * CSS `@layer` — normalize, defaults, variables, tags, classes — and that
+ * ordering is what keeps Webflow's own resets from outranking this app's
+ * styles. Importing the five directly drops the layers and the cascade fights.
+ */
+import '../devlink/css/global.css';
 import { search, DEFAULT_PER_PAGE, type SearchOutcome } from '../lib/queries/listings';
 import {
   PARAM,
@@ -15,23 +24,50 @@ import {
   buildQueryString,
   hasAnyFilter,
 } from '../lib/queries/params';
+import {
+  SECTION_LIST,
+  sectionHref,
+  propertyHref,
+  type ListingSection,
+} from '../lib/queries/sections';
 
 /*
- * Server-rendered, always. Listing data has to be present in view-source with
- * JavaScript disabled: ~5,200 listing pages carry Stone's organic search, and
- * client-side rendering of listing content would forfeit it.
+ * The body of every section page: /properties, /buy, /rent, /sold, /leased.
+ * Each of those is a five-line page at the app's mount root that hands this
+ * component its section.
  *
- * There is no client-side JavaScript on this page at all. The filter is a
- * plain GET form, so every filter combination is a distinct, shareable,
- * crawlable URL, and the back button behaves.
+ * `prerender = false` lives on the pages, not here; a component cannot set it.
  */
-export const prerender = false;
+
+interface Props {
+  section: ListingSection;
+}
+
+const { section } = Astro.props;
 
 const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
-const actionPath = `${base}/listings`;
+const actionPath = sectionHref(base, section);
+
+// Anchors the card's Contact Agent link on the detail page's agent panel.
+const contactHref = (slug: string) => `${propertyHref(base, slug)}#contact-heading`;
 
 const raw = readRawFilters(Astro.url);
+
+/*
+ * Status is the path now, so it must not survive as a query parameter: blanking
+ * it here keeps it out of the filter form, the tab links, the pagination links
+ * and the canonical URL, so one result set cannot be reached at two URLs.
+ */
+raw.status = '';
+
 const params = toSearchParams(raw);
+
+/*
+ * The section decides the statuses, unconditionally and last. A hand-typed
+ * `?status=withdrawn` cannot widen the set — it was blanked above, and this
+ * would overwrite it regardless.
+ */
+params.status = section.statuses;
 
 // Astro 7 removed `Astro.locals.runtime.env`; bindings come from cloudflare:workers.
 const db = env.DB;
@@ -46,6 +82,23 @@ if (!db) {
 } else {
   try {
     outcome = await search(db, { ...params, perPage: DEFAULT_PER_PAGE });
+
+    /*
+     * A page number past the end would otherwise render an empty grid under a
+     * 200 and a canonical of its own — an indexable empty page, and a soft 404.
+     * It happens on its own as listings sell and the page count shrinks under a
+     * bookmarked or already-indexed URL.
+     *
+     * Serve the last real page instead and canonicalise to it (below). The
+     * re-query only runs on the out-of-range request, which is rare.
+     */
+    if (outcome.totalPages > 0 && outcome.page > outcome.totalPages) {
+      outcome = await search(db, {
+        ...params,
+        page: outcome.totalPages,
+        perPage: DEFAULT_PER_PAGE,
+      });
+    }
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
   }
@@ -59,15 +112,6 @@ const PROPERTY_TYPES = [
 const PRICE_STEPS = [
   250000, 500000, 750000, 1000000, 1250000, 1500000, 2000000, 3000000, 5000000,
 ];
-
-const STATUS_LABELS: Record<string, string> = {
-  forSale: 'For Sale',
-  forRent: 'For Rent',
-  underOffer: 'Under Offer',
-  sold: 'Sold',
-  leased: 'Leased',
-  withdrawn: 'Withdrawn',
-};
 
 const SORT_LABELS: Record<string, string> = {
   newest: 'Newest',
@@ -83,16 +127,82 @@ const money = (value: number) =>
 
 const page = outcome?.page ?? 1;
 const totalPages = outcome?.totalPages ?? 0;
+const total = outcome?.total ?? 0;
 
-const title = outcome
-  ? `${outcome.total} propert${outcome.total === 1 ? 'y' : 'ies'} — Stone`
-  : 'Listings — Stone';
+/*
+ * Tab counts come free. `search()` already computes the status facet with every
+ * filter applied except status itself, which is exactly the question a tab
+ * asks: given these filters, how many are there in that section? No extra
+ * query — and summing only the section's own statuses is what keeps `withdrawn`
+ * out of the totals, since the facet itself counts every status.
+ */
+const statusCounts = outcome?.facetCounts.status ?? {};
+
+const tabs = SECTION_LIST.map((entry) => ({
+  slug: entry.slug,
+  label: entry.label,
+  current: entry.slug === section.slug,
+  // Filters follow you across sections; the page number does not.
+  href: sectionHref(base, entry, buildQueryString(raw, { page: undefined })),
+  count: outcome
+    ? entry.statuses.reduce((sum, status) => sum + (statusCounts[status] ?? 0), 0)
+    : null,
+}));
+
+/*
+ * A suburb filter turns a section into a page about a place, which is the query
+ * people actually search. Reflecting it in the heading, the title and the
+ * description is most of what makes those pages rank.
+ */
+const placeSuffix = raw.keywords ? ` in ${raw.keywords}` : '';
+const heading = `${section.heading}${placeSuffix}`;
+
+const pageSuffix = page > 1 ? ` — page ${page}` : '';
+const title = `${heading}${pageSuffix} — Stone`;
+
+const noun = total === 1 ? 'property' : 'properties';
+const metaDescription = hasAnyFilter(raw)
+  ? `${total} ${noun} ${section.phrase}${placeSuffix} with Stone.`
+  : section.blurb;
+
+/*
+ * Self-referencing, filters and page included: this URL is the canonical one
+ * for this result set, and no other URL now produces it.
+ *
+ * The page number is the one actually rendered, not the one asked for, so an
+ * out-of-range request points at the page it was served rather than claiming to
+ * be a page that does not exist.
+ */
+const canonical = `${Astro.url.origin}${actionPath}${buildQueryString(raw, {
+  page: page === 1 ? undefined : page,
+})}`;
+
+const prevHref = `${actionPath}${buildQueryString(raw, { page: page - 1 === 1 ? undefined : page - 1 })}`;
+const nextHref = `${actionPath}${buildQueryString(raw, { page: page + 1 })}`;
 ---
 
-<Layout title={title}>
+<Layout title={title} description={metaDescription} canonical={canonical}>
   <section class="listings-section">
     <div class="listings-container">
-      <h1 class="listings-title">All listings</h1>
+      <h1 class="listings-title">{heading}</h1>
+
+      <!--
+        Sections are links, not a select. Each one is a real URL that a crawler
+        follows and a person can bookmark, and switching section carries the
+        active filters across so the tabs behave like the filter they replaced.
+      -->
+      <nav class="section-tabs" aria-label="Listing sections">
+        {tabs.map((tab) => (
+          <a
+            class:list={['section-tab', { 'section-tab-current': tab.current }]}
+            href={tab.href}
+            aria-current={tab.current ? 'page' : undefined}
+          >
+            <span>{tab.label}</span>
+            {tab.count !== null && <span class="section-tab-count">{tab.count}</span>}
+          </a>
+        ))}
+      </nav>
 
       <!--
         Filters sit beside the results rather than stacked above them: an aside
@@ -103,7 +213,8 @@ const title = outcome
           <h2 class="visually-hidden" id="filters-heading">Filter listings</h2>
           <!--
             A plain GET form. No Webflow form runtime, no AJAX, no client JS —
-            submitting navigates and the server renders the result.
+            submitting navigates and the server renders the result. The action
+            is the section's own path, so filtering never leaves the section.
           -->
           <form class="search-form" method="get" action={actionPath}>
           <div class="field-group field-group-full">
@@ -182,16 +293,6 @@ const title = outcome
               </select>
             </div>
 
-            <div class="field-group">
-              <label class="field-label" for="filter-status">Status</label>
-              <select class="field-select" id="filter-status" name={PARAM.status}>
-                <option value="">Any status</option>
-                {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                  <option value={value} selected={raw.status === value}>{label}</option>
-                ))}
-              </select>
-            </div>
-
             <!--
               Sort lives inside the filter form on purpose. As a separate form
               it would submit alone and drop every active filter.
@@ -220,9 +321,9 @@ const title = outcome
         <>
           <div class="results-toolbar">
             <p class="results-count">
-              {outcome.total === 0
+              {total === 0
                 ? 'No properties match these filters'
-                : `${outcome.total} propert${outcome.total === 1 ? 'y' : 'ies'}`}
+                : `${total} ${noun}`}
               {totalPages > 1 && ` — page ${page} of ${totalPages}`}
             </p>
           </div>
@@ -233,40 +334,54 @@ const title = outcome
               directive on purpose — without one Astro renders the React
               component to HTML on the server and ships no JavaScript for it,
               which is what keeps listing content in view-source.
+            */}
+            {/*
+              Prop names are DevLink's, not ours. Webflow prefixes each property
+              with the name of the group it sits in inside the Designer —
+              `suburb` in the Listing group arrives as `listingSuburb`. The
+              canonical names live on the left of each line; do not rename the
+              right-hand side, it is regenerated on every export.
 
-              Every prop name here matches the Webflow component exactly.
+              `agentContactUrl` is a Link object rather than a string, which is
+              how DevLink models any Webflow Link element.
             */}
             {outcome.results.map((listing) => (
-              <ListingCard
-                listingId={listing.listingId}
-                suburb={`${listing.suburb} ${listing.state}`}
-                displayAddress={listing.streetAddress}
-                priceDisplay={listing.priceDisplay}
-                bedrooms={listing.bedrooms ?? undefined}
-                bathrooms={listing.bathrooms ?? undefined}
-                carspaces={listing.carspaces ?? undefined}
-                photoCount={listing.photoCount}
-                agentName={listing.agentName ?? 'Stone'}
-                agentPhone={listing.agentPhone ?? ''}
-                contactUrl={`${base}/listings/${listing.slug}`}
-                hasOpenTimes={false}
-              />
+              /*
+                The card is wrapped, not linked. DevLink's card already contains
+                a Contact Agent anchor and an <a> cannot nest inside another, so
+                the whole-card link is an overlay stretched across the slot with
+                the Contact Agent link raised above it. Both are real anchors in
+                the markup, so both are crawlable and neither needs JavaScript.
+              */
+              <div class="listing-card-slot">
+                <a class="listing-card-link" href={propertyHref(base, listing.slug)}>
+                  <span class="visually-hidden">
+                    View {listing.streetAddress || listing.displayAddress}, {listing.suburb}
+                  </span>
+                </a>
+                <ListingCard
+                  listingListingId={listing.listingId}
+                  listingSuburb={`${listing.suburb} ${listing.state}`}
+                  listingDisplayAddress={listing.streetAddress}
+                  listingPriceDisplay={listing.priceDisplay}
+                  listingBedrooms={listing.bedrooms ?? undefined}
+                  listingBathrooms={listing.bathrooms ?? undefined}
+                  listingCarspaces={listing.carspaces ?? undefined}
+                  listingPhotoCount={listing.photoCount}
+                  agentAgentName={listing.agentName ?? 'Stone'}
+                  agentAgentPhone={listing.agentPhone ?? ''}
+                  agentContactUrl={{ href: contactHref(listing.slug) }}
+                  openHomeHasOpenTimes={false}
+                />
+              </div>
             ))}
           </div>
 
           {totalPages > 1 && (
             <nav class="pagination" aria-label="Pagination">
-              {page > 1 && (
-                <a class="page-link" rel="prev" href={`${actionPath}${buildQueryString(raw, { page: page - 1 === 1 ? undefined : page - 1 })}`}>
-                  Previous
-                </a>
-              )}
+              {page > 1 && <a class="page-link" rel="prev" href={prevHref}>Previous</a>}
               <span class="page-status">Page {page} of {totalPages}</span>
-              {page < totalPages && (
-                <a class="page-link" rel="next" href={`${actionPath}${buildQueryString(raw, { page: page + 1 })}`}>
-                  Next
-                </a>
-              )}
+              {page < totalPages && <a class="page-link" rel="next" href={nextHref}>Next</a>}
             </nav>
           )}
         </>
@@ -287,7 +402,29 @@ const title = outcome
 
   .listings-section { padding: var(--stone-space-lg) var(--stone-space-md); }
   .listings-container { width: 100%; max-width: var(--stone-container-max); margin: 0 auto; }
-  .listings-title { margin: 0 0 var(--stone-space-lg); font-size: 2rem; line-height: 1.2; }
+  .listings-title { margin: 0 0 var(--stone-space-md); font-size: 2rem; line-height: 1.2; }
+
+  .section-tabs {
+    display: flex; flex-wrap: wrap; gap: var(--stone-space-xs);
+    margin-bottom: var(--stone-space-lg);
+    border-bottom: 1px solid var(--stone-border);
+  }
+  .section-tab {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 14px; margin-bottom: -1px;
+    border-bottom: 2px solid transparent;
+    color: var(--stone-ink-muted); text-decoration: none;
+    font-size: 0.95rem;
+  }
+  .section-tab-current {
+    border-bottom-color: var(--stone-action);
+    color: var(--stone-ink); font-weight: 600;
+  }
+  .section-tab-count {
+    padding: 1px 7px; border-radius: 999px;
+    background: var(--stone-surface-subtle);
+    font-size: 0.75rem; font-weight: 400;
+  }
 
   /* Sidebar beside results. minmax(0,1fr) stops long content blowing the grid
      out past the container, which `1fr` alone allows. */
@@ -361,6 +498,28 @@ const title = outcome
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--stone-space-md);
   }
+
+  /*
+    Whole-card link. The overlay covers the slot; `:global()` is what lets a
+    scoped style reach the DevLink markup, which Astro's scoping cannot tag —
+    it only rewrites elements this file authors. Raising .contact-agent above
+    the overlay keeps its own destination clickable.
+  */
+  /* Descendant, not child: DevLink wraps the card in a `display: contents`
+     scope div, so .listing-card is the flex item but not the DOM child. */
+  .listing-card-slot { position: relative; display: flex; }
+  .listing-card-slot :global(.listing-card) { flex: 1; min-width: 0; }
+
+  .listing-card-link {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: var(--stone-radius-md);
+  }
+  .listing-card-slot:hover { box-shadow: 0 2px 12px rgb(0 0 0 / 0.08); border-radius: var(--stone-radius-md); }
+  .listing-card-link:focus-visible { outline: 2px solid var(--stone-action); outline-offset: 2px; }
+
+  .listing-card-slot :global(.contact-agent) { position: relative; z-index: 2; }
 
   .pagination {
     display: flex; align-items: center; justify-content: center;

@@ -1,0 +1,538 @@
+---
+import { env } from 'cloudflare:workers';
+
+import Layout from '../../layouts/Layout.astro';
+import { findBySlug, findByListingId, type ListingDetail } from '../../lib/queries/listings';
+import {
+  SECTIONS,
+  sectionForStatus,
+  sectionHref,
+  propertyHref,
+} from '../../lib/queries/sections';
+import { toParagraphs, toPlainText } from '../../lib/rich-text';
+
+/*
+ * Server-rendered, always. This is the template behind ~5,200 listing pages and
+ * they are what carries Stone's organic search: address, price, features and
+ * description have to be present in view-source with JavaScript disabled. There
+ * is no client-side JavaScript on this page at all — the gallery is plain <img>
+ * elements and the contact actions are tel: and mailto: links.
+ */
+export const prerender = false;
+
+const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+/* `property`, singular, sits beside the sections rather than under one: a
+   listing changes section over its life and its URL must not change with it. */
+const allPath = sectionHref(base, SECTIONS.all);
+
+const slug = Astro.params.slug ?? '';
+
+// Astro 7 removed `Astro.locals.runtime.env`; bindings come from cloudflare:workers.
+const db = env.DB;
+
+let listing: ListingDetail | null = null;
+let failure: string | null = null;
+
+if (!db) {
+  failure =
+    'No D1 binding found. Run `npm run db:migrate` and `npm run db:seed`, then '
+    + 'start the app with `npm run preview` so the binding is available.';
+} else {
+  try {
+    listing = await findBySlug(db, slug);
+
+    /*
+     * A slug carries the address, so correcting an address changes it. The
+     * listing ID never does, which makes /property/<id> the stable way in: fall
+     * back to it and redirect to the current slug, so an old or hand-built link
+     * lands on the property instead of a 404.
+     */
+    if (!listing) {
+      const byId = await findByListingId(db, slug);
+      if (byId) return Astro.redirect(propertyHref(base, byId.slug), 301);
+    }
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  }
+}
+
+if (failure) Astro.response.status = 500;
+else if (!listing) Astro.response.status = 404;
+
+const STATUS_LABELS: Record<string, string> = {
+  forSale: 'For Sale',
+  forRent: 'For Rent',
+  underOffer: 'Under Offer',
+  sold: 'Sold',
+  leased: 'Leased',
+  withdrawn: 'Withdrawn',
+};
+
+const formatDate = (value: string | null): string | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat('en-AU', {
+    day: 'numeric', month: 'long', year: 'numeric',
+  }).format(date);
+};
+
+const formatLandSize = (size: number | null, unit: string | null): string | null => {
+  if (size === null) return null;
+  return `${size.toLocaleString('en-AU')} ${unit ?? 'sqm'}`;
+};
+
+/*
+ * Descriptions are mostly plain text but not always: a couple of sandbox
+ * records carry HTML and one carries bare entities. `toParagraphs` normalises
+ * both into paragraphs, rendered as text — never with set:html, since this copy
+ * is typed by agents into the CRM and is not trusted. Single newlines survive
+ * inside a paragraph via `white-space: pre-line`, which is how agents write
+ * these.
+ */
+const paragraphs = toParagraphs(listing?.description);
+
+// Street-level in the heading, suburb underneath — the same split the card makes.
+const heading = listing
+  ? (listing.streetAddress || listing.displayAddress)
+  : 'Listing not found';
+const locality = listing
+  ? [listing.suburb, listing.state, listing.postcode].filter(Boolean).join(' ')
+  : '';
+
+const price = listing ? (listing.priceDisplay.trim() || 'Contact agent') : '';
+
+const hero = listing?.images[0] ?? null;
+const restImages = listing?.images.slice(1) ?? [];
+
+const specs = listing
+  ? ([
+      ['Bedrooms', listing.bedrooms],
+      ['Bathrooms', listing.bathrooms],
+      ['Carspaces', listing.carspaces],
+    ] as const).filter(([, value]) => value !== null)
+  : [];
+
+const landSize = listing ? formatLandSize(listing.landSize, listing.landSizeUnit) : null;
+const listedOn = listing ? formatDate(listing.listedAt) : null;
+const soldOn = listing ? formatDate(listing.soldAt) : null;
+
+const title = listing
+  ? `${heading}, ${locality} — ${price} — Stone`
+  : (failure ? 'Something went wrong — Stone' : 'Listing not found — Stone');
+
+/*
+ * The real description when there is one, otherwise the facts we do hold. An
+ * empty meta description is worse than a derived one on a page whose whole job
+ * is organic search, and sandbox records often carry no copy at all.
+ */
+const metaDescription = listing
+  ? (toPlainText(listing.description, 300)
+    || [
+      [listing.bedrooms ? `${listing.bedrooms} bedroom` : null, listing.propertyType.toLowerCase()]
+        .filter(Boolean).join(' '),
+      `at ${listing.displayAddress}.`,
+      `${STATUS_LABELS[listing.status] ?? listing.status}${price === 'Contact agent' ? '' : ` — ${price}`}.`,
+    ].filter(Boolean).join(' '))
+  : undefined;
+
+const canonical = listing
+  ? `${Astro.url.origin}${propertyHref(base, listing.slug)}`
+  : undefined;
+
+/*
+ * Links back into search. These are what make a listing page part of the site
+ * rather than a leaf: same section, same suburb, same property type.
+ *
+ * They point at the listing's own section — a sold property links back into
+ * Sold, not into a mixed list — so following one lands somewhere consistent
+ * with where the visitor arrived from.
+ */
+const section = listing ? SECTIONS[sectionForStatus(listing.status)] : null;
+const sectionPath = section ? sectionHref(base, section) : allPath;
+
+const suburbHref = listing
+  ? `${sectionPath}?keywords=${encodeURIComponent(listing.suburb)}`
+  : allPath;
+const typeHref = listing
+  ? `${sectionPath}?property_type=${encodeURIComponent(listing.propertyType)}`
+  : allPath;
+
+const mapHref = listing && listing.latitude !== null && listing.longitude !== null
+  ? `https://www.google.com/maps/search/?api=1&query=${listing.latitude},${listing.longitude}`
+  : null;
+
+/*
+ * Built here, not inline in the attribute. A template literal nested inside
+ * another one inside a JSX attribute makes the Astro compiler lose the
+ * element's children — the link rendered with an empty label.
+ */
+const enquirySubject = listing ? `Enquiry — ${listing.displayAddress}` : '';
+const mailtoHref = (email: string) =>
+  `mailto:${email}?subject=${encodeURIComponent(enquirySubject)}`;
+const telHref = (phone: string) => `tel:${phone.replace(/\s+/g, '')}`;
+---
+
+<Layout title={title} description={metaDescription} canonical={canonical}>
+  <section class="detail-section">
+    <div class="detail-container">
+
+      {failure && (
+        <div class="detail-empty">
+          <p class="detail-error">{failure}</p>
+          <a class="back-link" href={allPath}>← All listings</a>
+        </div>
+      )}
+
+      {!failure && !listing && (
+        <div class="detail-empty">
+          <h1 class="detail-empty-title">Listing not found</h1>
+          <p class="detail-empty-body">
+            This property is no longer listed, or its address has changed.
+          </p>
+          <a class="back-link" href={allPath}>← Browse all listings</a>
+        </div>
+      )}
+
+      {listing && (
+        <>
+          <nav class="breadcrumb" aria-label="Breadcrumb">
+            <a href={sectionPath}>{section?.heading ?? 'All properties'}</a>
+            <span aria-hidden="true">/</span>
+            <a href={suburbHref}>{listing.suburb}</a>
+            <span aria-hidden="true">/</span>
+            <span aria-current="page">{heading}</span>
+          </nav>
+
+          <!--
+            Hero and gallery are plain <img> elements: no lightbox, no carousel,
+            no client JS. Every photo is in the markup, the first eager so it is
+            the LCP element and the rest lazy.
+          -->
+          {hero ? (
+            <figure class="hero">
+              <img
+                class="hero-image"
+                src={hero.url}
+                alt={hero.caption ?? `${listing.displayAddress} — main photo`}
+                loading="eager"
+                decoding="async"
+              />
+              {listing.images.length > 1 && (
+                <figcaption class="hero-count">{listing.images.length} photos</figcaption>
+              )}
+            </figure>
+          ) : (
+            <div class="hero hero-placeholder" role="presentation"></div>
+          )}
+
+          <div class="detail-layout">
+            <div class="detail-main">
+              <header class="detail-header">
+                <p class="status-badge">{STATUS_LABELS[listing.status] ?? listing.status}</p>
+                <h1 class="detail-address">{heading}</h1>
+                <p class="detail-locality">{locality}</p>
+                <p class="detail-price">{price}</p>
+
+                <ul class="spec-row">
+                  {specs.map(([label, value]) => (
+                    <li class="spec">
+                      <span class="spec-value">{value}</span>
+                      <span class="spec-label">{label}</span>
+                    </li>
+                  ))}
+                  {landSize && (
+                    <li class="spec">
+                      <span class="spec-value">{landSize}</span>
+                      <span class="spec-label">Land</span>
+                    </li>
+                  )}
+                </ul>
+              </header>
+
+              {listing.headline && <h2 class="detail-headline">{listing.headline}</h2>}
+
+              {paragraphs.length > 0 && (
+                <div class="detail-description">
+                  {paragraphs.map((block) => <p>{block}</p>)}
+                </div>
+              )}
+
+              {listing.features.length > 0 && (
+                <section class="detail-block" aria-labelledby="features-heading">
+                  <h2 class="block-heading" id="features-heading">Property features</h2>
+                  <ul class="feature-list">
+                    {listing.features.map((feature) => <li>{feature}</li>)}
+                  </ul>
+                </section>
+              )}
+
+              {(listing.floorplans.length > 0 || listing.videoUrl || mapHref) && (
+                <section class="detail-block" aria-labelledby="more-heading">
+                  <h2 class="block-heading" id="more-heading">More about this property</h2>
+                  <ul class="link-list">
+                    {listing.floorplans.map((plan, index) => (
+                      <li>
+                        <a href={plan.url} rel="noopener">
+                          {listing.floorplans.length > 1 ? `Floorplan ${index + 1}` : 'Floorplan'}
+                        </a>
+                      </li>
+                    ))}
+                    {listing.videoUrl && (
+                      <li><a href={listing.videoUrl} rel="noopener">Property video</a></li>
+                    )}
+                    {mapHref && (
+                      <li><a href={mapHref} rel="noopener noreferrer" target="_blank">View on map</a></li>
+                    )}
+                  </ul>
+                </section>
+              )}
+
+              {restImages.length > 0 && (
+                <section class="detail-block" aria-labelledby="gallery-heading">
+                  <h2 class="block-heading" id="gallery-heading">Photos</h2>
+                  <div class="gallery">
+                    {restImages.map((image, index) => (
+                      <figure class="gallery-item">
+                        <img
+                          src={image.url}
+                          alt={image.caption ?? `${listing.displayAddress} — photo ${index + 2}`}
+                          loading="lazy"
+                          decoding="async"
+                        />
+                        {image.caption && <figcaption>{image.caption}</figcaption>}
+                      </figure>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+
+            <aside class="detail-aside">
+              <section class="aside-card" aria-labelledby="contact-heading">
+                <h2 class="block-heading" id="contact-heading">
+                  {listing.agents.length > 1 ? 'Contact the agents' : 'Contact the agent'}
+                </h2>
+
+                {listing.agents.length === 0 && (
+                  <p class="aside-note">
+                    Contact {listing.office?.name ?? 'Stone'} about this property.
+                  </p>
+                )}
+
+                {listing.agents.map((agent) => (
+                  <div class="agent">
+                    {agent.photoUrl
+                      ? <img class="agent-photo" src={agent.photoUrl} alt={agent.fullName ?? ''} loading="lazy" />
+                      : <div class="agent-photo agent-photo-placeholder" role="presentation"></div>}
+                    <div class="agent-lines">
+                      <p class="agent-name">{agent.fullName ?? 'Stone'}</p>
+                      {agent.phone && (
+                        <p class="agent-line">
+                          <a href={telHref(agent.phone)}>{agent.phone}</a>
+                        </p>
+                      )}
+                      {agent.email && (
+                        <p class="agent-line">
+                          <a href={mailtoHref(agent.email)}>Email agent</a>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {listing.office && (
+                  <p class="aside-office">
+                    {listing.office.name}
+                    {listing.office.phone && (
+                      <>
+                        <br />
+                        <a href={telHref(listing.office.phone)}>{listing.office.phone}</a>
+                      </>
+                    )}
+                  </p>
+                )}
+              </section>
+
+              <section class="aside-card" aria-labelledby="details-heading">
+                <h2 class="block-heading" id="details-heading">Property details</h2>
+                <dl class="meta-list">
+                  <div class="meta-row">
+                    <dt>Type</dt>
+                    <dd><a href={typeHref}>{listing.propertyType}</a></dd>
+                  </div>
+                  <div class="meta-row">
+                    <dt>Suburb</dt>
+                    <dd><a href={suburbHref}>{listing.suburb}</a></dd>
+                  </div>
+                  {listedOn && <div class="meta-row"><dt>Listed</dt><dd>{listedOn}</dd></div>}
+                  {soldOn && <div class="meta-row"><dt>Sold</dt><dd>{soldOn}</dd></div>}
+                  <div class="meta-row">
+                    <dt>Listing ID</dt>
+                    <dd>{listing.listingId}</dd>
+                  </div>
+                </dl>
+              </section>
+            </aside>
+          </div>
+
+          <a class="back-link" href={sectionPath}>
+            ← Back to {(section?.heading ?? 'all properties').toLowerCase()}
+          </a>
+        </>
+      )}
+    </div>
+  </section>
+</Layout>
+
+<style>
+  /*
+    Page furniture only, on the same Stone tokens as the results page. There is
+    no DevLink component for a listing page — the Webflow site has the card and
+    nothing else — so this markup is the app's own. When a Webflow component
+    arrives, this becomes the shell around it.
+  */
+
+  .detail-section { padding: var(--stone-space-lg) var(--stone-space-md); }
+  .detail-container {
+    width: 100%; max-width: var(--stone-container-max); margin: 0 auto;
+    display: flex; flex-direction: column; gap: var(--stone-space-md);
+  }
+
+  .breadcrumb {
+    display: flex; flex-wrap: wrap; gap: var(--stone-space-xs);
+    font-size: 0.85rem; color: var(--stone-ink-muted);
+  }
+  .breadcrumb a { color: inherit; }
+
+  .hero {
+    margin: 0; position: relative; overflow: hidden;
+    border-radius: var(--stone-radius-md);
+    background: var(--stone-placeholder);
+    aspect-ratio: 16 / 9;
+  }
+  .hero-image { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .hero-count {
+    position: absolute; left: var(--stone-space-sm); bottom: var(--stone-space-sm);
+    padding: 4px 10px; border-radius: var(--stone-radius-sm);
+    background: rgba(0, 0, 0, 0.65); color: #fff; font-size: 0.8rem;
+  }
+
+  .detail-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    gap: var(--stone-space-lg);
+    align-items: start;
+  }
+
+  .detail-main { display: flex; flex-direction: column; gap: var(--stone-space-md); }
+  .detail-header { display: flex; flex-direction: column; gap: var(--stone-space-xs); }
+
+  .status-badge {
+    align-self: flex-start; margin: 0; padding: 4px 10px;
+    border-radius: var(--stone-radius-sm);
+    background: var(--stone-surface-subtle);
+    font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--stone-ink-muted);
+  }
+
+  .detail-address { margin: 0; font-size: 2rem; line-height: 1.15; }
+  .detail-locality { margin: 0; font-size: 1.05rem; color: var(--stone-ink-muted); }
+  .detail-price { margin: var(--stone-space-xs) 0 0; font-size: 1.4rem; font-weight: 600; }
+
+  .spec-row {
+    display: flex; flex-wrap: wrap; gap: var(--stone-space-md);
+    margin: var(--stone-space-xs) 0 0; padding: var(--stone-space-sm) 0 0;
+    border-top: 1px solid var(--stone-border); list-style: none;
+  }
+  .spec { display: flex; align-items: baseline; gap: 6px; }
+  .spec-value { font-size: 1.1rem; font-weight: 600; }
+  .spec-label { font-size: 0.85rem; color: var(--stone-ink-muted); }
+
+  .detail-headline { margin: 0; font-size: 1.25rem; line-height: 1.3; }
+  .detail-description { display: flex; flex-direction: column; gap: var(--stone-space-sm); }
+  /* Source copy uses single newlines inside a paragraph; keep them. */
+  .detail-description p { margin: 0; white-space: pre-line; line-height: 1.6; }
+
+  .detail-block { display: flex; flex-direction: column; gap: var(--stone-space-sm); }
+  .block-heading {
+    margin: 0; font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--stone-ink-muted);
+  }
+
+  .feature-list {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 6px var(--stone-space-md); margin: 0; padding: 0; list-style: none;
+  }
+  .feature-list li { position: relative; padding-left: 1rem; font-size: 0.95rem; }
+  .feature-list li::before {
+    content: "\2022"; position: absolute; left: 0; color: var(--stone-ink-muted);
+  }
+
+  .link-list {
+    display: flex; flex-wrap: wrap; gap: var(--stone-space-md);
+    margin: 0; padding: 0; list-style: none;
+  }
+
+  .gallery {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    gap: var(--stone-space-sm);
+  }
+  .gallery-item { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+  .gallery-item img {
+    width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block;
+    border-radius: var(--stone-radius-sm); background: var(--stone-placeholder);
+  }
+  .gallery-item figcaption { font-size: 0.8rem; color: var(--stone-ink-muted); }
+
+  .detail-aside {
+    position: sticky; top: var(--stone-space-md);
+    display: flex; flex-direction: column; gap: var(--stone-space-md);
+  }
+  .aside-card {
+    display: flex; flex-direction: column; gap: var(--stone-space-sm);
+    border: 1px solid var(--stone-border); border-radius: var(--stone-radius-md);
+    padding: var(--stone-space-md); background: var(--stone-surface);
+  }
+  .aside-note, .aside-office { margin: 0; font-size: 0.9rem; color: var(--stone-ink-muted); }
+
+  .agent { display: flex; gap: var(--stone-space-sm); align-items: center; }
+  .agent-photo {
+    width: 56px; height: 56px; flex: none; border-radius: 50%;
+    object-fit: cover; background: var(--stone-placeholder);
+  }
+  .agent-lines { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .agent-name { margin: 0; font-weight: 600; }
+  .agent-line { margin: 0; font-size: 0.9rem; }
+
+  .meta-list { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  .meta-row {
+    display: flex; justify-content: space-between; gap: var(--stone-space-sm);
+    font-size: 0.9rem;
+  }
+  .meta-row dt { color: var(--stone-ink-muted); }
+  .meta-row dd { margin: 0; text-align: right; }
+
+  .back-link { font-size: 0.9rem; }
+
+  .detail-empty {
+    display: flex; flex-direction: column; gap: var(--stone-space-sm);
+    padding: var(--stone-space-lg) 0;
+  }
+  .detail-empty-title { margin: 0; font-size: 1.6rem; }
+  .detail-empty-body { margin: 0; color: var(--stone-ink-muted); }
+  .detail-error {
+    margin: 0; padding: var(--stone-space-sm);
+    border: 1px solid #c0392b; border-radius: var(--stone-radius-sm); color: #c0392b;
+  }
+
+  @media (max-width: 60rem) {
+    .detail-layout { grid-template-columns: minmax(0, 1fr); gap: var(--stone-space-md); }
+    .detail-aside { position: static; }
+    .detail-address { font-size: 1.6rem; }
+  }
+
+  @media (max-width: 36rem) {
+    .detail-section { padding: var(--stone-space-md) var(--stone-space-sm); }
+  }
+</style>

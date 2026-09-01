@@ -1,0 +1,63 @@
+---
+import { readRawFilters, buildQueryString } from '../../lib/queries/params';
+import {
+  SECTIONS,
+  isSectionSlug,
+  sectionForStatus,
+  sectionHref,
+  propertyHref,
+} from '../../lib/queries/sections';
+
+/*
+ * Everything that used to live under /listings, redirected to where it lives
+ * now. One rest route rather than seven files, because the whole subtree moved
+ * and none of it renders any more.
+ *
+ *   /listings                    -> /properties
+ *   /listings?status=forSale     -> /buy
+ *   /listings?keywords=Manly     -> /properties?keywords=Manly
+ *   /listings/all                -> /properties
+ *   /listings/buy                -> /buy            (and rent, sold, leased)
+ *   /listings/buy?bedrooms=3     -> /buy?bedrooms=3
+ *   /listings/<slug>             -> /property/<slug>
+ *
+ * 301, not 302: the move is permanent and the ranking should follow it. These
+ * URLs were live and linked from the section tabs and every card, so this file
+ * is what stops the restructure breaking anything already saved or indexed.
+ */
+export const prerender = false;
+
+const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+
+// '' for a bare /listings; otherwise the first segment. A deeper path was never
+// a real URL here, so only the first segment is worth interpreting.
+const path = (Astro.params.path ?? '').split('/').filter(Boolean)[0] ?? '';
+
+const raw = readRawFilters(Astro.url);
+
+let target: string;
+
+if (path === '') {
+  // Bare /listings. The old ?status= is the only thing that picked a section.
+  target = sectionHref(
+    base,
+    SECTIONS[sectionForStatus(raw.status)],
+    // Every other filter survives; `status` does not, since the path carries it.
+    buildQueryString(raw, { status: undefined }),
+  );
+} else if (isSectionSlug(path)) {
+  // An old section URL. Filters carry across unchanged.
+  target = sectionHref(base, SECTIONS[path], buildQueryString(raw, { status: undefined }));
+} else {
+  /*
+   * Anything else was a listing slug. The query string is dropped: a detail
+   * page takes no filters, and carrying them would mint a second URL for it.
+   *
+   * An unknown slug is not checked here — it redirects, and the detail route
+   * answers 404. That keeps one place deciding whether a listing exists.
+   */
+  target = propertyHref(base, path);
+}
+
+return Astro.redirect(target, 301);
+---
