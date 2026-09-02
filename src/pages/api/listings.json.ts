@@ -92,15 +92,45 @@ function toPayload(listing: ListingSummary, base: string): ListingPayload {
   };
 }
 
+/*
+ * Cross-origin reads are allowed, deliberately and narrowly.
+ *
+ * A code component renders on the Webflow Designer canvas, which is served from
+ * Webflow's own origin rather than the site's. Webflow's docs are explicit that
+ * a component's requests run in the browser and that "APIs must allow
+ * cross-origin requests", so without this the cards render on the published
+ * site but stay empty on the canvas — which is the one place a designer needs
+ * to see them.
+ *
+ * What this does not open: the endpoint is GET-only, returns listing data that
+ * is already public on every property page, sends no credentials, and carries
+ * no header that would let a caller act as the user. The narrowing that matters
+ * is in the handler — withdrawn listings and server-only fields never leave.
+ */
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'accept, content-type',
+  'Access-Control-Max-Age': '86400',
+} as const;
+
 function json(body: unknown, status: number, cache: string): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': cache,
+      // `Vary: Origin` keeps a cached response from being replayed to a
+      // different origin than the one it was negotiated for.
+      Vary: 'Origin',
+      ...CORS,
     },
   });
 }
+
+/** Preflight. Some browsers send one for the `accept` header alone. */
+export const OPTIONS: APIRoute = () =>
+  new Response(null, { status: 204, headers: { ...CORS } });
 
 export const prerender = false;
 
