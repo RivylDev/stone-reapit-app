@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Listing binder — reference markup</title>
+
+<!--
+  Reference implementation of the data-attribute contract in stone-listings.js.
+
+  This is what a Webflow Designer page needs to look like once the attributes
+  are authored under Settings → Custom attributes. Everything structural here
+  has a direct equivalent in the Designer; the CSS does not, and exists only so
+  the card structure is legible without Webflow's styles.
+
+  Rebuild the page in the Designer rather than pasting this in — the point of
+  the exercise is that the card is a real Webflow component.
+
+  NOTE: this renders client-side. It is fine for a Designer page, a widget or a
+  canvas preview, and it is NOT how /buy, /rent or a property page may work.
+  See the header of public/stone-listings.js.
+-->
+
+<style>
+  body {
+    margin: 0; padding: 32px;
+    background: #F7F8F6; color: #161A18;
+    font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .note { color: #5F6863; margin: 0 0 24px; font-size: 13.5px; }
+  .count { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #20504A; }
+
+  /* The feed container — in the Designer this is any div. */
+  .grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+
+  /* The card — in the Designer this is your component. */
+  .card {
+    background: #fff; border: 1px solid #E0E4E0; border-radius: 8px;
+    overflow: hidden; text-decoration: none; color: inherit;
+    display: flex; flex-direction: column;
+  }
+  .card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; background: #E8ECE8; display: block; }
+  .card-body { padding: 12px 13px 13px; display: flex; flex-direction: column; gap: 5px; }
+  .price { font-weight: 600; font-size: 15.5px; }
+  .addr { font-size: 14px; }
+  .suburb { font-size: 12.5px; color: #5F6863; text-transform: uppercase; letter-spacing: .04em; }
+  .specs { display: flex; gap: 12px; font-size: 13px; color: #5F6863; margin-top: 3px; }
+  .type { font-size: 11.5px; color: #20504A; }
+
+  [data-stone-listings][data-stone-phase="loading"]::before { content: "Loading…"; color: #5F6863; }
+  [data-stone-listings][data-stone-phase="empty"]::before { content: "No listings matched."; color: #5F6863; }
+</style>
+</head>
+<body>
+
+  <h1>Listing binder — reference markup</h1>
+  <p class="note">
+    One card, cloned per listing. Requested 18 via <code>data-stone-limit</code>.
+    Rendered: <span class="count" id="count">—</span>
+  </p>
+
+  <!--
+    THE FEED CONTAINER
+    In the Designer, add these under Settings → Custom attributes:
+      data-stone-listings   (no value)
+      data-stone-base       /app        ← the mount path, required
+      data-stone-limit      18
+      data-stone-status     forSale     ← optional
+  -->
+  <div
+    class="grid"
+    data-stone-listings
+    data-stone-base="/staging"
+    data-stone-limit="18"
+    data-stone-status="forSale"
+  >
+
+    <!--
+      THE CARD TEMPLATE
+      One element marked data-stone-template. It is cloned once per listing and
+      the original is removed, so you design exactly one card.
+
+      On an <a>, href is set automatically from the listing.
+    -->
+    <a class="card" data-stone-template href="#">
+      <img data-stone-field="primaryImageUrl" alt="">
+      <div class="card-body">
+        <span class="price"  data-stone-field="priceDisplay"></span>
+        <span class="addr"   data-stone-field="streetAddress"></span>
+        <span class="suburb" data-stone-field="suburb"></span>
+        <div class="specs">
+          <span data-stone-field="bedrooms"></span>
+          <span data-stone-field="bathrooms"></span>
+          <span data-stone-field="carspaces"></span>
+        </div>
+        <span class="type" data-stone-field="propertyType"></span>
+      </div>
+    </a>
+
+  </div>
+
+  <script src="/staging/stone-listings.js"></script>
+  <script>
+    // Demo only — reads back the attribute the binder sets when it finishes.
+    var feed = document.querySelector('[data-stone-listings]');
+    new MutationObserver(function () {
+      var n = feed.getAttribute('data-stone-count');
+      if (n !== null) document.getElementById('count').textContent = n + ' cards';
+    }).observe(feed, { attributes: true, attributeFilter: ['data-stone-count'] });
+  </script>
+
+</body>
+</html>
