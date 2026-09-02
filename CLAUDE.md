@@ -21,6 +21,52 @@ Stack: Astro on Webflow Cloud, which runs on Cloudflare Workers. D1 for storage.
   group, so `suburb` arrives as `listingSuburb` (mapping table in ARCHITECTURE §5)
 - **Reapit sandbox connected.** `AgentboxSource` is verified against the live sandbox and `npm run db:seed:agentbox` fills D1 from it. Production credentials have not been issued yet; `--allow-production` is the only switch that will need flipping. The default source is still `MockSource`, so a fresh checkout needs no credentials.
 
+## Verified against the live site, 2 September 2026
+
+Checked directly against stonerealestate.com.au and the Reapit Sales API v2
+sandbox reference. Recorded here because each of these was previously an
+assumption, and two of them contradict the site architecture map in `.agents/`.
+
+**Legacy URL formats.** Properties are
+`www.stonerealestate.com.au/property/{id}-{street}-{suburb}-{state}/` — real
+example, `/property/8791905-34-sycamore-avenue-bateau-bay-nsw/`. Agents nest
+under their office: `/stone-{office}/meet-team/{name}/`, e.g.
+`/stone-tumbi-umbi/meet-team/tony-trinder/`. The 301 map has to cover both, and
+neither is the `/listings/*` space `src/pages/listings/[...path].astro` handles —
+that file redirects our own earlier URLs, not WordPress's.
+
+**Off-market listings are already public.** `/buy/off-market-sales/` shows
+addresses, bed/bath/car counts and some prices, filtered by the same form as the
+main listings. `filter[offMarketListing]` on `/listings` is how they are
+selected — off-market is a filter, not a separate status or resource. This
+removes the vendor-consent question that would otherwise sit in front of it.
+
+**Inspection and auction times are load-bearing.** They appear on listing cards,
+on every property page, and in a homepage "What's on This Week" calendar. The
+canonical `Listing` type has no field for either and the schema has no table.
+Adding them is a type change, so it needs a decision before anyone starts.
+
+**Three forms post into the CRM.** An "Ask a question" enquiry form on every
+property page (the site's primary lead capture), plus Request Appraisal under
+both Sell and Rent. All three are `POST /enquiries`. Access has been requested
+but nothing here writes to Agentbox yet, and building the forms is still a scope
+decision — the integration remains read-only until that is made.
+
+**Endpoint scope.** `docs/REAPIT-API-ENDPOINTS.md` is the submission to the
+Reapit API team: 16 endpoints, 15 read and one write. If code needs an endpoint
+that is not in that list, it is not approved — say so rather than calling it.
+
+## Open architectural decision: the mount path
+
+`docs/WEBFLOW-CLOUD-ARCHITECTURE.md` is the live one. Webflow have confirmed a
+Cloud app serves exactly one path prefix per environment, and that separate apps
+cannot share a D1 binding. Our routes therefore sit under `/app`, while every URL
+the live site ranks for is top-level — `/property/...`, `/buy`, `/projects`.
+
+Do not treat `/app/...` as settled, and do not solve it by fetching listing data
+from the browser: Webflow suggest that, and hard rule 4 forbids it. Four options
+and the two questions that decide between them are in that document.
+
 ## Hard rules
 
 Do not violate these without asking first.
