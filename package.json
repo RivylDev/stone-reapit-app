@@ -28,6 +28,7 @@
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.0",
     "@astrojs/react": "^6.0.0",
+    "@cloudflare/vite-plugin": "^1.54.3",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "astro": "^7.0.5",

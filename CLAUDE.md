@@ -99,6 +99,25 @@ Upsert by `listing_id`. Running any sync twice must be a no-op. The source data 
 **8. Never commit secrets.**
 `.dev.vars` and `.env` stay in `.gitignore`. No credentials in code, config or commit messages.
 
+## Code components and deploys
+
+Use the `stone-code-component` skill (`.claude/skills/stone-code-component/`)
+before building a component for the Designer or running a deploy. It holds the
+working commands and the platform traps — the `npx`-versus-global CLI file lock,
+the Git Bash mount-path mangling, and the `.env` token that shadows the OAuth
+session. Rediscovering those costs hours.
+
+Two rules it encodes, repeated here because they are easy to get wrong:
+
+**A component that fetches in the browser declares `ssr: false`**, and may not
+be used on `/buy`, `/rent`, `/sold`, `/leased` or `/property/*`. Those are
+server-rendered from D1 under hard rule 4. Marketing pages and widgets are fine.
+
+**Component props match the canonical `Listing` field names exactly.** DevLink
+*exports* arrive prefixed by their Designer property group — `suburb` becomes
+`listingSuburb` — but that is DevLink's doing and must not be imitated in
+components we author.
+
 ## Naming convention
 
 Webflow component prop names become React prop names after DevLink export. Both must match the canonical `Listing` type field names exactly:

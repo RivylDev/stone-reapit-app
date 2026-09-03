@@ -1,6 +1,12 @@
 {
   "cloud": {
-    "framework": "astro"
+    "contract_version": "1",
+    "framework": "astro",
+    "framework_version": "7.0.5",
+    "entrypoint_path": "./entry.mjs",
+    "deployment_type": "ssr",
+    "skip_no_bundle": true,
+    "assets_source_skip_mount_path": true
   },
   "siteId": "6a73c4d12df78ea4c276a06b",
   "devlink-export": {
