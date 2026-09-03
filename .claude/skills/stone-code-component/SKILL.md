@@ -8,6 +8,75 @@ description: Build a React code component for the Webflow Designer in this repo,
 Everything here was verified against this repo on 3 September 2026. The commands
 work; the traps are ones we actually hit.
 
+## What the prompt must supply
+
+This skill carries the mechanics. It cannot guess intent, so four things have to
+come from the request. **If any are missing, ask before writing code** — getting
+the SEO one wrong means building something that cannot go where it was wanted.
+
+```
+Use the stone-code-component skill.
+
+Build: <what it shows>
+Data:  <where the data comes from — D1 via props, or the JSON API>
+SEO:   <must the content be indexable? yes/no>
+Props: <what a designer should be able to change>
+Place: <which page it goes on>
+
+Publish it to the Designer and verify with a screenshot.
+```
+
+Worked example — a browser-fetched component:
+
+```
+Use the stone-code-component skill.
+
+Build: an Agent Card — photo, name, job title, office, phone
+Data:  the JSON API, filtered by office
+SEO:   no, this is for office landing pages
+Props: office id, how many, show/hide phone
+Place: the office microsite pages
+
+Publish it to the Designer and verify with a screenshot.
+```
+
+Worked example — a server-rendered one:
+
+```
+Use the stone-code-component skill.
+
+Build: a Property Detail hero — address, price, specs, agent
+Data:  D1 via props from the Astro page
+SEO:   yes, must be in view-source
+Props: heading level, show/hide the agent block
+Place: /property/<slug>
+
+Publish it to the Designer and verify with a screenshot.
+```
+
+**Why these four.** SEO decides `ssr: true` or `false`, which decides where the
+component may legally be placed. Data source decides whether it takes props or
+fetches. Props is the one most under-specified — every prop becomes a control in
+the Designer panel, so it is really "what should a designer change without
+asking an engineer?" Placement is a cross-check: *"featured strip on the
+homepage"* plus *"must be indexable"* is a contradiction worth catching before
+any code exists.
+
+**Do not ask the requester about these** — they are covered below: file
+structure, the `import * as cssModule` cast, design-token fallbacks, canonical
+field names, `webflow library share`, the deploy command and flags, CORS, the
+mount-path prefix.
+
+**Debugging requests** name the step and paste the error verbatim, e.g. *"the
+deploy failed at npm ci with EPERM on rspack"*. Those are lookups in the traps
+section below, not fresh investigations.
+
+**Direction matters.** This skill is code → Designer (code components). The
+reverse — a component designed in Webflow pulled into this repo — is DevLink,
+`npx webflow devlink export`, and has different rules: exported props arrive
+prefixed with their Designer property group, so `suburb` becomes
+`listingSuburb`. "Build" means this skill; "export" means DevLink.
+
 ## First, the decision that governs everything
 
 **Does this component need listing data?**
