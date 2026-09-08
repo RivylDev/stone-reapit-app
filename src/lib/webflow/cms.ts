@@ -20,6 +20,19 @@
 /** The Blogs collection on the Stone site. Overridable for another environment. */
 const DEFAULT_BLOG_COLLECTION = '6a9f5ee9da3cb06dec321c53';
 
+/*
+ * The CDN host, not `api.webflow.com`. It serves cached published content and
+ * those responses do not count against the rate limit, which matters when every
+ * render of a public page reads from it.
+ *
+ * The cost is staleness. Measured 9 September 2026, the host answers
+ * `Cache-Control: max-age=14400` — four hours, not the 300s Webflow's docs
+ * claim. Whether a publish purges that cache is unverified. Our own pages add
+ * nothing on top: they answer `private, no-cache` and Cloudflare reports BYPASS.
+ *
+ * Swap this for `https://api.webflow.com` if an edit has to appear immediately.
+ * That host is uncached, and every render then counts against the rate limit.
+ */
 const CDN_HOST = 'https://api-cdn.webflow.com';
 
 /** Webflow caps this at 100. */

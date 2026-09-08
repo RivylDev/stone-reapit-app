@@ -111,12 +111,44 @@ fully designable in Webflow, which is where the visual work is.
 | Endpoint | `GET /v2/collections/{collection_id}/items/live` |
 | Scope | `cms:read` |
 | Page size | `limit` max 100, `offset` to page |
-| Cache | 300s on non-enterprise plans, 120s enterprise |
+| Cache | **`max-age=14400` — 4 hours**, measured. See below |
 
 Two reasons for the CDN host: it serves cached **published** content, and cached
 responses **do not count against the rate limit** — which matters when every
 render of a public page reads from it. `/items/live` returns published items
 only, no drafts, which is what a public page wants.
+
+### How long a change takes to appear
+
+There is no sync job. Astro fetches on every page render, so the only staleness
+is the CDN's. Measured against the live collection on 9 September 2026:
+
+```
+1   200   cf-cache-status: MISS            Cache-Control: max-age=14400
+2   200   cf-cache-status: HIT    Age: 1   Cache-Control: max-age=14400
+3   200   cf-cache-status: HIT    Age: 2   Cache-Control: max-age=14400
+```
+
+**14400 seconds is four hours.** Webflow's content-delivery docs say 300s for
+non-enterprise plans and 120s for enterprise; the header says otherwise. Trust
+the header — this file previously repeated the documented figure and it was
+wrong by a factor of 48.
+
+Our own HTML adds nothing on top. The deployed pages answer
+`Cache-Control: private, no-cache` with `CF-Cache-Status: BYPASS`, so every
+request renders fresh and the CDN is the only layer.
+
+**Still unverified: whether publishing purges that cache.** Most content CDNs
+purge on publish, which would make edits appear almost immediately and leave the
+four hours applying only to content nobody has touched. Determining it means
+editing and publishing a real post and watching, which nobody has done yet.
+
+Until it is known, assume **up to four hours** for a published edit to reach the
+Astro page. The `Age` response header tells you how stale any given response is.
+
+**If that is too slow**, change `CDN_HOST` in `src/lib/webflow/cms.ts` to
+`https://api.webflow.com`. That host is not cached, so edits appear on the next
+render — at the cost of every render counting against the rate limit.
 
 The Blogs collection on this site is `6a9f5ee9da3cb06dec321c53`, fields
 `name`, `slug`, `excerpt`, `author`, `date`, all PlainText.
