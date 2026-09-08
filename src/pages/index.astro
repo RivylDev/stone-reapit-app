@@ -11,6 +11,7 @@ import {
   sectionHref,
   propertyHref,
 } from '../lib/queries/sections';
+import { fetchBlogPosts, type BlogEnv } from '../lib/webflow/cms';
 
 /*
  * The app's index.
@@ -53,6 +54,23 @@ if (!db) {
     failure = error instanceof Error ? error.message : String(error);
   }
 }
+
+/*
+ * The other data source. Listings come from D1; the blog is authored in Webflow
+ * and has no upstream system, so it is read from the CMS at render time.
+ *
+ * Awaited alongside nothing in particular — it is a second network hop, but the
+ * CDN host caches for 300s and a miss should not hold the listings hostage, so
+ * a failure here degrades to a missing section rather than a broken page.
+ */
+const blog = await fetchBlogPosts(env as unknown as BlogEnv, 3);
+
+/*
+ * Blog posts live on the Webflow site, not in this app. Their URLs sit at the
+ * site root under the collection slug — deliberately *not* prefixed with the
+ * mount path, which only addresses routes this app serves.
+ */
+const blogHref = (slug: string) => `/blog/${slug}`;
 
 const contactHref = (slug: string) => `${propertyHref(base, slug)}#contact-heading`;
 const numberFormat = new Intl.NumberFormat('en-AU');
@@ -138,6 +156,39 @@ const numberFormat = new Intl.NumberFormat('en-AU');
           ))}
         </div>
       </section>
+    )}
+
+    {/*
+      Webflow CMS, server-rendered.
+
+      Nothing here is a Collection List — DevLink cannot carry one across. The
+      markup is authored in Astro and the rows come from the Data API, which is
+      the same division of labour as the listings grid above: Webflow owns
+      presentation, this file owns the repeat.
+    */}
+    {blog.posts && blog.posts.length > 0 && (
+      <section class="blog" aria-labelledby="blog-heading">
+        <div class="featured-head">
+          <h2 class="featured-title" id="blog-heading">From the blog</h2>
+          <a class="see-all" href="/blog">All posts</a>
+        </div>
+
+        <ul class="post-list">
+          {blog.posts.map((post) => (
+            <li class="post">
+              <a class="post-title" href={blogHref(post.slug)}>{post.name}</a>
+              {post.excerpt && <p class="post-excerpt">{post.excerpt}</p>}
+              <p class="post-meta">
+                {post.author}{post.author && post.date ? ' · ' : ''}{post.date}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    {blog.error && (
+      <p class="failure" role="status">Blog unavailable — {blog.error}</p>
     )}
   </main>
 </Layout>
@@ -233,6 +284,49 @@ const numberFormat = new Intl.NumberFormat('en-AU');
   /* Keeps the agent's own link clickable above the card overlay. */
   .listing-card-slot :global(.contact-agent) { position: relative; z-index: 2; }
 
+  .blog { margin-top: 56px; }
+
+  .post-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--stone-space-md, 20px);
+  }
+
+  .post {
+    padding: 18px 20px;
+    border: 1px solid var(--stone-border, #e0e0e0);
+    border-radius: var(--stone-radius-md, 8px);
+  }
+
+  .post-title {
+    display: block;
+    font-weight: 600;
+    font-size: 1rem;
+    line-height: 1.35;
+    color: inherit;
+    text-decoration: none;
+  }
+  .post-title:hover { text-decoration: underline; }
+  .post-title:focus-visible {
+    outline: 2px solid var(--stone-action, #20504a);
+    outline-offset: 2px;
+  }
+
+  .post-excerpt {
+    margin: 8px 0 0;
+    font-size: 0.9375rem;
+    color: var(--stone-muted, #6b6e6b);
+  }
+
+  .post-meta {
+    margin: 12px 0 0;
+    font-size: 0.8125rem;
+    color: var(--stone-muted, #6b6e6b);
+  }
+
   .failure {
     padding: 16px 18px;
     border: 1px solid var(--stone-border, #e0e0e0);
@@ -252,9 +346,11 @@ const numberFormat = new Intl.NumberFormat('en-AU');
 
   @media (max-width: 1024px) {
     .listings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .post-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 
   @media (max-width: 640px) {
     .listings-grid { grid-template-columns: minmax(0, 1fr); }
+    .post-list { grid-template-columns: minmax(0, 1fr); }
   }
 </style>
