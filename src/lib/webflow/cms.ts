@@ -49,6 +49,8 @@ export interface BlogResult {
   posts: BlogPost[] | null;
   /** Set when the fetch was attempted and failed. */
   error: string | null;
+  /** How many the collection holds, regardless of how many were asked for. */
+  total: number | null;
 }
 
 interface WebflowItem {
@@ -111,13 +113,15 @@ export async function fetchBlogPosts(
   env: BlogEnv,
   limit = 6,
   fetchImpl: typeof fetch = fetch,
+  offset = 0,
 ): Promise<BlogResult> {
   const token = env.WEBFLOW_API_TOKEN;
-  if (!token) return { posts: null, error: null };
+  if (!token) return { posts: null, error: null, total: null };
 
   const collection = env.WEBFLOW_BLOG_COLLECTION_ID || DEFAULT_BLOG_COLLECTION;
   const url = new URL(`${CDN_HOST}/v2/collections/${collection}/items/live`);
   url.searchParams.set('limit', String(Math.min(Math.max(limit, 1), MAX_LIMIT)));
+  if (offset > 0) url.searchParams.set('offset', String(offset));
 
   try {
     const response = await fetchImpl(url.toString(), {
@@ -134,14 +138,77 @@ export async function fetchBlogPosts(
       return {
         posts: null,
         error: `Webflow CMS ${response.status}: ${body.slice(0, 200)}`,
+        total: null,
       };
     }
 
-    const body = (await response.json()) as { items?: unknown[] };
+    const body = (await response.json()) as {
+      items?: unknown[];
+      pagination?: { total?: unknown };
+    };
     const items = Array.isArray(body.items) ? body.items : [];
+    const total = typeof body.pagination?.total === 'number' ? body.pagination.total : null;
 
-    return { posts: items.map(mapBlogPost).filter((p): p is BlogPost => p !== null), error: null };
+    return {
+      posts: items.map(mapBlogPost).filter((p): p is BlogPost => p !== null),
+      error: null,
+      total,
+    };
   } catch (error) {
-    return { posts: null, error: error instanceof Error ? error.message : String(error) };
+    return {
+      posts: null,
+      error: error instanceof Error ? error.message : String(error),
+      total: null,
+    };
   }
+}
+
+/**
+ * Every published post, paging past the API's 100-per-request cap.
+ *
+ * `fetchBlogPosts` is one request and is what a page with a fixed count should
+ * use. This is for "all of them", which today is 20 and one request — but a
+ * collection that grows past 100 would silently truncate without the loop, and
+ * that is the kind of bug nobody notices until a post goes missing.
+ *
+ * `max` is a stop, not a target: it bounds a runaway collection rather than
+ * setting how many to show. Leave it alone unless the collection is enormous.
+ */
+export async function fetchAllBlogPosts(
+  env: BlogEnv,
+  max = 500,
+  fetchImpl: typeof fetch = fetch,
+): Promise<BlogResult> {
+  const collected: BlogPost[] = [];
+  let offset = 0;
+  let total: number | null = null;
+
+  // Bounded rather than `while (true)`: a wrong `total` cannot spin forever.
+  for (let page = 0; page < Math.ceil(max / MAX_LIMIT) + 1; page += 1) {
+    const remaining = max - collected.length;
+    if (remaining <= 0) break;
+
+    const result = await fetchBlogPosts(
+      env,
+      Math.min(remaining, MAX_LIMIT),
+      fetchImpl,
+      offset,
+    );
+
+    // Not configured, or failed. Either way, hand back what the caller needs.
+    if (result.posts === null) {
+      return collected.length > 0
+        ? { posts: collected, error: result.error, total }
+        : result;
+    }
+
+    collected.push(...result.posts);
+    if (result.total !== null) total = result.total;
+
+    // A short page is the last page, whatever the total claims.
+    if (result.posts.length < MAX_LIMIT) break;
+    offset += result.posts.length;
+  }
+
+  return { posts: collected, error: null, total };
 }

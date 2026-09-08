@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { mapBlogPost, fetchBlogPosts, type BlogEnv } from './cms.ts';
+import { mapBlogPost, fetchBlogPosts, fetchAllBlogPosts, type BlogEnv } from './cms.ts';
 
 /*
  * Captured from the live Blogs collection on 8 September 2026, unedited.
@@ -91,4 +91,50 @@ test('requests live items from the CDN host, within the limit cap', async () => 
   assert.match(seen, /\/items\/live\?/);
   // Webflow caps limit at 100; 999 must not be sent through.
   assert.match(seen, /limit=100/);
+});
+
+test('reports the collection total alongside a limited page', async () => {
+  const result = await fetchBlogPosts({ WEBFLOW_API_TOKEN: 't' }, 3, async () =>
+    new Response(JSON.stringify({ items: [REAL_ITEM], pagination: { total: 20 } }), { status: 200 }));
+
+  assert.equal(result.total, 20);
+  assert.equal(result.posts?.length, 1);
+});
+
+test('fetchAllBlogPosts stops on a short page rather than trusting the total', async () => {
+  let calls = 0;
+
+  const result = await fetchAllBlogPosts({ WEBFLOW_API_TOKEN: 't' }, 500, async () => {
+    calls += 1;
+    // 20 items is short of the 100 cap, so one request is the whole collection.
+    const items = Array.from({ length: 20 }, (_, i) => ({
+      ...REAL_ITEM,
+      id: 'id' + i,
+      fieldData: { ...REAL_ITEM.fieldData, slug: 'post-' + i },
+    }));
+    return new Response(JSON.stringify({ items, pagination: { total: 20 } }), { status: 200 });
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(result.posts?.length, 20);
+  assert.equal(result.total, 20);
+});
+
+test('fetchAllBlogPosts pages past the 100 cap', async () => {
+  const pages = [100, 100, 37];
+  let call = 0;
+
+  const result = await fetchAllBlogPosts({ WEBFLOW_API_TOKEN: 't' }, 500, async () => {
+    const n = pages[call] ?? 0;
+    call += 1;
+    const items = Array.from({ length: n }, (_, i) => ({
+      ...REAL_ITEM,
+      id: 'p' + call + '-' + i,
+      fieldData: { ...REAL_ITEM.fieldData, slug: 'p' + call + '-' + i },
+    }));
+    return new Response(JSON.stringify({ items, pagination: { total: 237 } }), { status: 200 });
+  });
+
+  assert.equal(call, 3);
+  assert.equal(result.posts?.length, 237);
 });

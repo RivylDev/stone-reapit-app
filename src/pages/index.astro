@@ -63,7 +63,14 @@ if (!db) {
  * CDN host caches for 300s and a miss should not hold the listings hostage, so
  * a failure here degrades to a missing section rather than a broken page.
  */
-const blog = await fetchBlogPosts(env as unknown as BlogEnv, 3);
+/*
+ * How many posts this page shows. One number, one place — the API caps a single
+ * request at 100, and `fetchAllBlogPosts` is the way past that if a page ever
+ * needs the lot. `/blog` does exactly that.
+ */
+const BLOG_POSTS = 3;
+
+const blog = await fetchBlogPosts(env as unknown as BlogEnv, BLOG_POSTS);
 
 /*
  * Blog posts live on the Webflow site, not in this app. Their URLs sit at the
@@ -170,7 +177,9 @@ const numberFormat = new Intl.NumberFormat('en-AU');
       <section class="blog" aria-labelledby="blog-heading">
         <div class="featured-head">
           <h2 class="featured-title" id="blog-heading">From the blog</h2>
-          <a class="see-all" href="/blog">All posts</a>
+          <a class="see-all" href={`${base}/blog`}>
+            All posts{blog.total !== null ? ` (${blog.total})` : ''}
+          </a>
         </div>
 
         <ul class="post-list">

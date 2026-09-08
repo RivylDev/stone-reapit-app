@@ -1,0 +1,160 @@
+---
+import { env } from 'cloudflare:workers';
+
+import Layout from '../layouts/Layout.astro';
+import { fetchAllBlogPosts, type BlogEnv } from '../lib/webflow/cms';
+
+/*
+ * Every published post from the Webflow Blogs collection.
+ *
+ * Server-rendered, like everything else public here. The posts themselves are
+ * Webflow pages at `/blog/<slug>` on the site root — this route is an index of
+ * them rendered from the CMS API, not a replacement for them.
+ *
+ * `fetchAllBlogPosts` pages past the API's 100-per-request cap. Today the
+ * collection holds 20 and it is a single request; the loop exists so that a
+ * collection which grows past 100 does not silently lose its tail.
+ */
+
+export const prerender = false;
+
+const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+
+const { posts, error, total } = await fetchAllBlogPosts(env as unknown as BlogEnv);
+
+/*
+ * Posts live on the Webflow site, not in this app, so their URLs sit at the
+ * site root — deliberately not prefixed with the mount path, which only
+ * addresses routes this app serves.
+ */
+const postHref = (slug: string) => `/blog/${slug}`;
+---
+
+<Layout
+  title="Blog — Stone Real Estate"
+  description="Articles and updates from Stone Real Estate."
+>
+  <main class="wrap">
+    <header class="head">
+      <p class="eyebrow"><a href={`${base}/`}>Stone Real Estate</a></p>
+      <h1>Blog</h1>
+      {posts && posts.length > 0 && (
+        <p class="count">
+          Showing all {posts.length}
+          {total !== null && total !== posts.length ? ` of ${total}` : ''} posts
+        </p>
+      )}
+    </header>
+
+    {error && <p class="note" role="status">Blog unavailable — {error}</p>}
+
+    {!error && posts === null && (
+      <p class="note" role="status">
+        Not configured. Set <code>WEBFLOW_API_TOKEN</code> in <code>.dev.vars</code>,
+        or as a Secret on the Webflow Cloud environment.
+      </p>
+    )}
+
+    {posts && posts.length === 0 && (
+      <p class="note" role="status">No published posts yet.</p>
+    )}
+
+    {posts && posts.length > 0 && (
+      <ul class="posts">
+        {posts.map((post) => (
+          <li class="post">
+            <a class="post-title" href={postHref(post.slug)}>{post.name}</a>
+            {post.excerpt && <p class="post-excerpt">{post.excerpt}</p>}
+            <p class="post-meta">
+              {post.author}{post.author && post.date ? ' · ' : ''}{post.date}
+            </p>
+          </li>
+        ))}
+      </ul>
+    )}
+  </main>
+</Layout>
+
+<style>
+  .wrap {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: var(--stone-space-lg, 32px) var(--stone-space-md, 20px) 64px;
+  }
+
+  .head { margin-bottom: var(--stone-space-lg, 32px); }
+
+  .eyebrow {
+    margin: 0 0 8px;
+    font-size: 0.8125rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--stone-muted, #6b6e6b);
+  }
+  .eyebrow a { color: inherit; text-decoration: none; }
+  .eyebrow a:hover { text-decoration: underline; }
+
+  h1 { margin: 0 0 8px; font-size: clamp(1.75rem, 4vw, 2.5rem); line-height: 1.15; }
+
+  .count {
+    margin: 0;
+    color: var(--stone-muted, #6b6e6b);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .posts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--stone-space-md, 20px);
+  }
+
+  .post {
+    padding: 18px 20px;
+    border: 1px solid var(--stone-border, #e0e0e0);
+    border-radius: var(--stone-radius-md, 8px);
+  }
+
+  .post-title {
+    display: block;
+    font-weight: 600;
+    font-size: 1rem;
+    line-height: 1.35;
+    color: inherit;
+    text-decoration: none;
+  }
+  .post-title:hover { text-decoration: underline; }
+  .post-title:focus-visible {
+    outline: 2px solid var(--stone-action, #20504a);
+    outline-offset: 2px;
+  }
+
+  .post-excerpt {
+    margin: 8px 0 0;
+    font-size: 0.9375rem;
+    color: var(--stone-muted, #6b6e6b);
+  }
+
+  .post-meta {
+    margin: 12px 0 0;
+    font-size: 0.8125rem;
+    color: var(--stone-muted, #6b6e6b);
+  }
+
+  .note {
+    padding: 16px 18px;
+    border: 1px solid var(--stone-border, #e0e0e0);
+    border-radius: var(--stone-radius-md, 8px);
+    color: var(--stone-muted, #6b6e6b);
+  }
+
+  @media (max-width: 1024px) {
+    .posts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 640px) {
+    .posts { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>
