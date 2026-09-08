@@ -1,64 +1,260 @@
 ---
-import Layout from "../layouts/Layout.astro";
+import { env } from 'cloudflare:workers';
 
-const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") || "";
+import Layout from '../layouts/Layout.astro';
+import { ListingCard } from '../devlink/listings/ListingCard';
+import '../devlink/css/global.css';
+import { search, type ListingSummary } from '../lib/queries/listings';
+import {
+  PUBLIC_STATUSES,
+  SECTION_LIST,
+  sectionHref,
+  propertyHref,
+} from '../lib/queries/sections';
+
+/*
+ * The app's index.
+ *
+ * Server-rendered from D1, like every other public route: hard rule 4 wants
+ * listing content in view-source with JavaScript disabled, and this page is as
+ * indexable as the section pages are.
+ *
+ * The card is the DevLink export, rendered with no `client:*` directive so it
+ * runs on the server and ships as HTML. Same pattern as `ListingsBrowser`.
+ *
+ * What this page is NOT is `ListingCmsGrid`. That component exists in Webflow
+ * and exports, but DevLink cannot carry a Collection List across — see the
+ * comment at the grid below.
+ */
+
+export const prerender = false;
+
+const FEATURED = 6;
+
+const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+const db = env.DB;
+
+let listings: ListingSummary[] = [];
+let total = 0;
+let failure: string | null = null;
+
+if (!db) {
+  failure = 'No D1 binding found. Run `npm run db:migrate` and `npm run db:seed`.';
+} else {
+  try {
+    const outcome = await search(db, {
+      status: [...PUBLIC_STATUSES],
+      perPage: FEATURED,
+      sort: 'newest',
+    });
+    listings = outcome.results;
+    total = outcome.total;
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  }
+}
+
+const contactHref = (slug: string) => `${propertyHref(base, slug)}#contact-heading`;
+const numberFormat = new Intl.NumberFormat('en-AU');
 ---
 
-<Layout>
-  <div id="app">
-    <div>
-      <a href="https://astro.build" target="_blank" rel="noopener noreferrer">
-        <img src={`${base}/astro.svg`} class="logo" alt="Astro logo" />
-      </a>
-      <a href="https://webflow.com/cloud" target="_blank" rel="noopener noreferrer">
-        <img src={`${base}/webflow.svg`} class="logo vanilla" alt="Webflow logo" />
-      </a>
-      <h1>Astro + Webflow Cloud</h1>
-      <div class="card">
-        <button id="counter" type="button"></button>
-      </div>
-      <p class="read-the-docs">
-        Click on the Astro and Webflow logos to learn more
-      </p>
-    </div>
-  </div>
-  <script>
-    import { setupCounter } from "../lib/counter";
+<Layout
+  title="Stone Real Estate — property listings"
+  description="Properties for sale and rent with Stone Real Estate, across NSW, QLD, ACT, VIC and TAS."
+>
+  <main class="home">
+    <header class="hero">
+      <p class="eyebrow">Stone Real Estate</p>
+      <h1 class="hero-title">Find your next property</h1>
+      {total > 0 && (
+        <p class="hero-count">
+          {numberFormat.format(total)} properties listed across {SECTION_LIST.length - 1} categories
+        </p>
+      )}
 
-    const counterEl = document.querySelector<HTMLButtonElement>("#counter")!;
-    setupCounter(counterEl);
-  </script>
+      <nav class="sections" aria-label="Browse listings">
+        {SECTION_LIST.map((section) => (
+          <a class="section-link" href={sectionHref(base, section)}>
+            {section.label}
+          </a>
+        ))}
+      </nav>
+    </header>
+
+    {failure && (
+      <p class="failure" role="status">{failure}</p>
+    )}
+
+    {!failure && listings.length === 0 && (
+      <p class="failure" role="status">No listings yet. Run `npm run db:seed` to load the fixtures.</p>
+    )}
+
+    {listings.length > 0 && (
+      <section class="featured" aria-labelledby="featured-heading">
+        <div class="featured-head">
+          <h2 class="featured-title" id="featured-heading">Latest listings</h2>
+          <a class="see-all" href={sectionHref(base, SECTION_LIST[0])}>
+            See all properties
+          </a>
+        </div>
+
+        {/*
+          Where ListingCmsGrid would have gone.
+
+          The Webflow component exports, but its Collection List, Collection
+          List Items and Empty State come across as `NotSupported` placeholders
+          that render error text and no cards — DevLink carries presentation,
+          not a CMS binding. So the repeat happens here instead, over rows from
+          D1, and each row renders through the card component that *did* export.
+
+          To make ListingCmsGrid itself usable, the Webflow component needs its
+          Collection List swapped for a plain Div Block containing one Listing
+          Card. Then DevLink can export the layout and Astro supplies the
+          repetition, which is the same division of labour as this grid.
+        */}
+        <div class="listings-grid">
+          {listings.map((listing) => (
+            <div class="listing-card-slot">
+              <a class="listing-card-link" href={propertyHref(base, listing.slug)}>
+                <span class="visually-hidden">
+                  View {listing.streetAddress || listing.displayAddress}, {listing.suburb}
+                </span>
+              </a>
+              <ListingCard
+                listingListingId={listing.listingId}
+                listingSuburb={`${listing.suburb} ${listing.state}`}
+                listingDisplayAddress={listing.streetAddress}
+                listingPriceDisplay={listing.priceDisplay}
+                listingBedrooms={listing.bedrooms ?? undefined}
+                listingBathrooms={listing.bathrooms ?? undefined}
+                listingCarspaces={listing.carspaces ?? undefined}
+                listingPhotoCount={listing.photoCount}
+                agentAgentName={listing.agentName ?? 'Stone'}
+                agentAgentPhone={listing.agentPhone ?? ''}
+                agentContactUrl={{ href: contactHref(listing.slug) }}
+                openHomeHasOpenTimes={false}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+  </main>
 </Layout>
 
 <style>
-  /*
-    The starter's demo styling, moved out of global.css so it stops affecting
-    real pages. It was centering every page's body as a flex item and forcing a
-    dark background site-wide.
-  */
-  #app {
-    max-width: 1280px;
+  .home {
+    max-width: 1200px;
     margin: 0 auto;
-    padding: 2rem;
-    min-height: 100vh;
+    padding: var(--stone-space-lg, 32px) var(--stone-space-md, 20px) 64px;
+  }
+
+  .hero { margin-bottom: var(--stone-space-lg, 32px); }
+
+  .eyebrow {
+    margin: 0 0 8px;
+    font-size: 0.8125rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--stone-muted, #6b6e6b);
+  }
+
+  .hero-title {
+    margin: 0 0 8px;
+    font-size: clamp(1.75rem, 4vw, 2.5rem);
+    line-height: 1.15;
+  }
+
+  .hero-count {
+    margin: 0 0 20px;
+    color: var(--stone-muted, #6b6e6b);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sections { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  .section-link {
+    padding: 7px 15px;
+    border: 1px solid var(--stone-border, #e0e0e0);
+    border-radius: 999px;
+    text-decoration: none;
+    color: inherit;
+    font-size: 0.9375rem;
+  }
+  .section-link:hover { border-color: var(--stone-action, #20504a); }
+  .section-link:focus-visible {
+    outline: 2px solid var(--stone-action, #20504a);
+    outline-offset: 2px;
+  }
+
+  .featured-head {
     display: flex;
-    place-items: center;
-    justify-content: center;
-    text-align: center;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: var(--stone-space-md, 20px);
   }
-  h1 { font-size: 3.2em; line-height: 1.1; }
-  .logo { height: 6em; padding: 1.5em; will-change: filter; transition: filter 300ms; }
-  .logo:hover { filter: drop-shadow(0 0 2em #646cffaa); }
-  .logo.vanilla:hover { filter: drop-shadow(0 0 2em #3178c6aa); }
-  .card { padding: 2em; }
-  .read-the-docs { color: #888; }
-  a { font-weight: 500; color: #646cff; text-decoration: inherit; }
-  a:hover { color: #535bf2; }
-  button {
-    border-radius: 8px; border: 1px solid transparent;
-    padding: 0.6em 1.2em; font-size: 1em; font-weight: 500; font-family: inherit;
-    background-color: #1a1a1a; color: #fff; cursor: pointer;
-    transition: border-color 0.25s;
+
+  .featured-title { margin: 0; font-size: 1.25rem; }
+
+  .see-all { color: var(--stone-action, #20504a); font-size: 0.9375rem; }
+
+  /* Three across, matching the results grid on the section pages. */
+  .listings-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--stone-space-md, 20px);
   }
-  button:hover { border-color: #646cff; }
+
+  /*
+    Whole-card link. `:global()` is what lets a scoped style reach the DevLink
+    markup, which Astro's scoping cannot tag — it only rewrites elements this
+    file authors. Descendant rather than child, because DevLink wraps the card
+    in a `display: contents` scope div.
+  */
+  .listing-card-slot { position: relative; display: flex; }
+  .listing-card-slot :global(.listing-card) { flex: 1; min-width: 0; }
+
+  .listing-card-link {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: var(--stone-radius-md, 8px);
+  }
+  .listing-card-slot:hover {
+    box-shadow: 0 2px 12px rgb(0 0 0 / 0.08);
+    border-radius: var(--stone-radius-md, 8px);
+  }
+  .listing-card-link:focus-visible {
+    outline: 2px solid var(--stone-action, #20504a);
+    outline-offset: 2px;
+  }
+
+  /* Keeps the agent's own link clickable above the card overlay. */
+  .listing-card-slot :global(.contact-agent) { position: relative; z-index: 2; }
+
+  .failure {
+    padding: 16px 18px;
+    border: 1px solid var(--stone-border, #e0e0e0);
+    border-radius: var(--stone-radius-md, 8px);
+    color: var(--stone-muted, #6b6e6b);
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  @media (max-width: 1024px) {
+    .listings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 640px) {
+    .listings-grid { grid-template-columns: minmax(0, 1fr); }
+  }
 </style>
