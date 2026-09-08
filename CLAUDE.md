@@ -118,6 +118,20 @@ server-rendered from D1 under hard rule 4. Marketing pages and widgets are fine.
 `listingSuburb` — but that is DevLink's doing and must not be imitated in
 components we author.
 
+## Webflow CMS content
+
+`docs/WEBFLOW-CMS-TO-ASTRO.md` covers getting CMS-authored content — blog,
+testimonials, editorial copy — onto an Astro page, and `src/lib/webflow/cms.ts`
+is the client.
+
+DevLink cannot export a **Collection List** (it becomes `NotSupported`
+placeholders that render error text) and exports **no slots**, so a wrapper
+component cannot take children. Build one card per collection, never a repeater
+and never a grid wrapper; Astro fetches the rows and does the repeat.
+
+Not a route for listings: those come from Agentbox into D1, and reading them
+back from Webflow CMS would need the sync writer, which is out of scope.
+
 ## Naming convention
 
 Webflow component prop names become React prop names after DevLink export. Both must match the canonical `Listing` type field names exactly:
