@@ -106,6 +106,41 @@ const numberFormat = new Intl.NumberFormat('en-AU');
       </nav>
     </header>
 
+    {/*
+      Webflow CMS, server-rendered.
+
+      Nothing here is a Collection List — DevLink cannot carry one across. The
+      markup is authored in Astro and the rows come from the Data API, which is
+      the same division of labour as the listings grid below: Webflow owns
+      presentation, this file owns the repeat.
+    */}
+    {blog.error && (
+      <p class="failure" role="status">Blog unavailable — {blog.error}</p>
+    )}
+
+    {blog.posts && blog.posts.length > 0 && (
+      <section class="blog" aria-labelledby="blog-heading">
+        <div class="featured-head">
+          <h2 class="featured-title" id="blog-heading">From the blog</h2>
+          <a class="see-all" href={`${base}/blog`}>
+            All posts{blog.total !== null ? ` (${blog.total})` : ''}
+          </a>
+        </div>
+
+        <ul class="post-list">
+          {blog.posts.map((post) => (
+            <li class="post">
+              <a class="post-title" href={blogHref(post.slug)}>{post.name}</a>
+              {post.excerpt && <p class="post-excerpt">{post.excerpt}</p>}
+              <p class="post-meta">
+                {post.author}{post.author && post.date ? ' · ' : ''}{post.date}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
     {failure && (
       <p class="failure" role="status">{failure}</p>
     )}
@@ -165,40 +200,6 @@ const numberFormat = new Intl.NumberFormat('en-AU');
       </section>
     )}
 
-    {/*
-      Webflow CMS, server-rendered.
-
-      Nothing here is a Collection List — DevLink cannot carry one across. The
-      markup is authored in Astro and the rows come from the Data API, which is
-      the same division of labour as the listings grid above: Webflow owns
-      presentation, this file owns the repeat.
-    */}
-    {blog.posts && blog.posts.length > 0 && (
-      <section class="blog" aria-labelledby="blog-heading">
-        <div class="featured-head">
-          <h2 class="featured-title" id="blog-heading">From the blog</h2>
-          <a class="see-all" href={`${base}/blog`}>
-            All posts{blog.total !== null ? ` (${blog.total})` : ''}
-          </a>
-        </div>
-
-        <ul class="post-list">
-          {blog.posts.map((post) => (
-            <li class="post">
-              <a class="post-title" href={blogHref(post.slug)}>{post.name}</a>
-              {post.excerpt && <p class="post-excerpt">{post.excerpt}</p>}
-              <p class="post-meta">
-                {post.author}{post.author && post.date ? ' · ' : ''}{post.date}
-              </p>
-            </li>
-          ))}
-        </ul>
-      </section>
-    )}
-
-    {blog.error && (
-      <p class="failure" role="status">Blog unavailable — {blog.error}</p>
-    )}
   </main>
 </Layout>
 
@@ -293,7 +294,8 @@ const numberFormat = new Intl.NumberFormat('en-AU');
   /* Keeps the agent's own link clickable above the card overlay. */
   .listing-card-slot :global(.contact-agent) { position: relative; z-index: 2; }
 
-  .blog { margin-top: 56px; }
+  /* The gap belongs to whichever section is second. Blog leads now. */
+  .featured { margin-top: 56px; }
 
   .post-list {
     list-style: none;
