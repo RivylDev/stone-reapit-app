@@ -12,6 +12,14 @@ import {
   propertyHref,
 } from '../lib/queries/sections';
 import { fetchBlogPosts, type BlogEnv } from '../lib/webflow/cms';
+import {
+  parseEnquiryForm,
+  EMPTY_VALUES,
+  HONEYPOT_FIELD,
+  type EnquiryField,
+  type EnquiryValues,
+} from '../lib/enquiries/enquiry';
+import { createEnquirySink, type EnquiryEnv } from '../lib/enquiries/sink';
 
 /*
  * The app's index.
@@ -34,6 +42,69 @@ const FEATURED = 6;
 
 const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 const db = env.DB;
+
+/*
+ * The enquiry form posts to this page.
+ *
+ * A plain HTML form with `method="post"` — no JavaScript involved, so it works
+ * with scripts off and cannot break when a bundle fails to load. The flow is
+ * Post/Redirect/Get:
+ *
+ *   valid, handled   → 303 to `?enquiry=…#enquiry`. A refresh then re-GETs
+ *                      rather than re-posting, so nobody sends twice.
+ *   invalid          → re-render here, 422, with what they typed intact.
+ *   refused by CRM   → re-render here, 502, message kept so they can retry.
+ *
+ * Handled before the D1 and CMS fetches below, so a successful submit
+ * redirects without paying for work the redirect throws away.
+ */
+let enquiryValues: EnquiryValues = { ...EMPTY_VALUES };
+let enquiryErrors: Partial<Record<EnquiryField, string>> = {};
+let enquiryFailed = false;
+
+if (Astro.request.method === 'POST') {
+  const parsed = parseEnquiryForm(await Astro.request.formData());
+  enquiryValues = parsed.values;
+
+  // A bot that filled the honeypot is shown success and forwarded nowhere.
+  if (parsed.kind === 'spam') {
+    return Astro.redirect(`${base}/?enquiry=sent#enquiry`, 303);
+  }
+
+  if (parsed.kind === 'invalid') {
+    enquiryErrors = parsed.errors;
+    Astro.response.status = 422;
+  } else {
+    const outcome = await createEnquirySink(env as unknown as EnquiryEnv).submit(parsed.enquiry);
+
+    if (outcome.status === 'sent') {
+      return Astro.redirect(`${base}/?enquiry=sent#enquiry`, 303);
+    }
+    if (outcome.status === 'not-forwarded') {
+      return Astro.redirect(`${base}/?enquiry=received#enquiry`, 303);
+    }
+
+    /*
+     * Refused or unreachable. The reason goes to the Worker's runtime logs —
+     * Webflow Cloud shows them under the environment's Runtime logs tab — and
+     * not to the visitor. A CRM error body is internal detail, and a habit of
+     * rendering it on a public form is a habit that ships to production.
+     */
+    console.error('[enquiry] not sent:', outcome.error);
+    enquiryFailed = true;
+    Astro.response.status = 502;
+  }
+}
+
+/** After the redirect: `sent` reached the CRM, `received` did not leave the app. */
+const enquiryState = Astro.url.searchParams.get('enquiry');
+
+const ENQUIRY_INPUTS = [
+  { name: 'firstName', label: 'First name', type: 'text', autocomplete: 'given-name', required: true },
+  { name: 'lastName', label: 'Last name', type: 'text', autocomplete: 'family-name', required: false },
+  { name: 'email', label: 'Email', type: 'email', autocomplete: 'email', required: true },
+  { name: 'mobile', label: 'Mobile', type: 'tel', autocomplete: 'tel', required: false },
+] as const;
 
 let listings: ListingSummary[] = [];
 let total = 0;
@@ -59,9 +130,10 @@ if (!db) {
  * The other data source. Listings come from D1; the blog is authored in Webflow
  * and has no upstream system, so it is read from the CMS at render time.
  *
- * Awaited alongside nothing in particular — it is a second network hop, but the
- * CDN host caches for 300s and a miss should not hold the listings hostage, so
- * a failure here degrades to a missing section rather than a broken page.
+ * A second network hop, but a failure here degrades to a missing section rather
+ * than a broken page — the blog should never hold the listings hostage. The CDN
+ * host answers `max-age=14400`, so a published edit can take up to four hours to
+ * appear; see docs/WEBFLOW-CMS-TO-ASTRO.md.
  */
 /*
  * How many posts this page shows. One number, one place — the API caps a single
@@ -200,6 +272,99 @@ const numberFormat = new Intl.NumberFormat('en-AU');
       </section>
     )}
 
+    {/*
+      A general enquiry. Posts to this page; see the frontmatter for the flow.
+
+      No `novalidate`: the browser's own checks give instant feedback without
+      JavaScript, and the server re-checks everything regardless, because a
+      form anyone can post to cannot trust the client.
+    */}
+    <section class="enquiry" id="enquiry" aria-labelledby="enquiry-heading">
+      <h2 class="featured-title" id="enquiry-heading">Send us an enquiry</h2>
+      <p class="enquiry-lede">
+        Ask about a property, an appraisal, or anything else. A Stone agent will get back to you.
+      </p>
+
+      {enquiryState === 'sent' && (
+        <p class="enquiry-ok" role="status">
+          Thanks — your enquiry is with our team, and we'll be in touch soon.
+        </p>
+      )}
+
+      {enquiryState === 'received' && (
+        <p class="enquiry-ok" role="status">
+          Thanks — your enquiry was received.
+          <span class="enquiry-test">
+            Test mode: not sent to the CRM, because <code>AGENTBOX_ENQUIRIES</code> is off.
+          </span>
+        </p>
+      )}
+
+      {enquiryFailed && (
+        <p class="enquiry-fail" role="alert">
+          We couldn't send that just now. Your message is still below — please try
+          again, or contact your local office.
+        </p>
+      )}
+
+      {Object.keys(enquiryErrors).length > 0 && (
+        <p class="enquiry-fail" role="alert">Please fix the highlighted fields.</p>
+      )}
+
+      <form class="enquiry-form" method="post" action={`${base}/#enquiry`}>
+        <div class="enquiry-grid">
+          {ENQUIRY_INPUTS.map((input) => {
+            const error = enquiryErrors[input.name];
+            const errorId = `enq-${input.name}-error`;
+            return (
+              <div class="field">
+                <label for={`enq-${input.name}`}>
+                  {input.label}{!input.required && <span class="optional"> (optional)</span>}
+                </label>
+                <input
+                  id={`enq-${input.name}`}
+                  name={input.name}
+                  type={input.type}
+                  autocomplete={input.autocomplete}
+                  required={input.required}
+                  value={enquiryValues[input.name]}
+                  aria-invalid={error ? 'true' : undefined}
+                  aria-describedby={error ? errorId : undefined}
+                />
+                {error && <p class="field-error" id={errorId}>{error}</p>}
+              </div>
+            );
+          })}
+
+          <div class="field field-full">
+            <label for="enq-message">Message</label>
+            <textarea
+              id="enq-message"
+              name="message"
+              rows="5"
+              required
+              aria-invalid={enquiryErrors.message ? 'true' : undefined}
+              aria-describedby={enquiryErrors.message ? 'enq-message-error' : undefined}
+            >{enquiryValues.message}</textarea>
+            {enquiryErrors.message && (
+              <p class="field-error" id="enq-message-error">{enquiryErrors.message}</p>
+            )}
+          </div>
+        </div>
+
+        {/*
+          Honeypot. Moved off-screen rather than `display: none`, because some
+          bots skip fields that are not displayed; hidden from assistive tech and
+          from the tab order, so a real visitor never reaches it.
+        */}
+        <div class="hp" aria-hidden="true">
+          <label for="enq-website">Leave this empty</label>
+          <input id="enq-website" name={HONEYPOT_FIELD} type="text" tabindex="-1" autocomplete="off" />
+        </div>
+
+        <button class="enquiry-submit" type="submit">Send enquiry</button>
+      </form>
+    </section>
   </main>
 </Layout>
 
@@ -338,6 +503,101 @@ const numberFormat = new Intl.NumberFormat('en-AU');
     color: var(--stone-muted, #6b6e6b);
   }
 
+  .enquiry {
+    margin-top: 56px;
+    padding: 28px;
+    border: 1px solid var(--stone-border, #e0e0e0);
+    border-radius: var(--stone-radius-md, 8px);
+    max-width: 760px;
+  }
+
+  .enquiry-lede {
+    margin: 6px 0 20px;
+    color: var(--stone-muted, #6b6e6b);
+  }
+
+  .enquiry-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field-full { grid-column: 1 / -1; }
+
+  .field label { font-size: 0.9375rem; font-weight: 500; }
+  .optional { font-weight: 400; color: var(--stone-muted, #6b6e6b); }
+
+  .field input,
+  .field textarea {
+    font: inherit;
+    padding: 10px 12px;
+    border: 1px solid var(--stone-border, #cfd3cf);
+    border-radius: var(--stone-radius-sm, 6px);
+    background: #fff;
+    color: inherit;
+  }
+  .field textarea { resize: vertical; min-height: 120px; }
+
+  .field input:focus-visible,
+  .field textarea:focus-visible {
+    outline: 2px solid var(--stone-action, #20504a);
+    outline-offset: 1px;
+    border-color: var(--stone-action, #20504a);
+  }
+
+  /* Colour is not the only signal: the error text beneath says what is wrong. */
+  .field [aria-invalid='true'] { border-color: #b3261e; }
+
+  .field-error {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: #b3261e;
+  }
+
+  .enquiry-ok,
+  .enquiry-fail {
+    margin: 0 0 18px;
+    padding: 12px 14px;
+    border-radius: var(--stone-radius-sm, 6px);
+    font-size: 0.9375rem;
+  }
+  .enquiry-ok { background: #e6f2ec; color: #14532d; }
+  .enquiry-fail { background: #fbeaea; color: #8c1d18; }
+
+  .enquiry-test {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.8125rem;
+    opacity: 0.85;
+  }
+
+  .enquiry-submit {
+    margin-top: 20px;
+    padding: 11px 22px;
+    font: inherit;
+    font-weight: 600;
+    color: #fff;
+    background: var(--stone-action, #20504a);
+    border: 0;
+    border-radius: var(--stone-radius-sm, 6px);
+    cursor: pointer;
+  }
+  .enquiry-submit:hover { filter: brightness(1.1); }
+  .enquiry-submit:focus-visible {
+    outline: 2px solid var(--stone-action, #20504a);
+    outline-offset: 3px;
+  }
+
+  /* Off-screen, not display:none — some bots skip fields that are not shown. */
+  .hp {
+    position: absolute;
+    left: -10000px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+  }
+
   .failure {
     padding: 16px 18px;
     border: 1px solid var(--stone-border, #e0e0e0);
@@ -363,5 +623,7 @@ const numberFormat = new Intl.NumberFormat('en-AU');
   @media (max-width: 640px) {
     .listings-grid { grid-template-columns: minmax(0, 1fr); }
     .post-list { grid-template-columns: minmax(0, 1fr); }
+    .enquiry-grid { grid-template-columns: minmax(0, 1fr); }
+    .enquiry { padding: 20px; }
   }
 </style>

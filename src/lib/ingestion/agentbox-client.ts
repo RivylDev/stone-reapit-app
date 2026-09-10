@@ -209,6 +209,51 @@ export class AgentboxClient {
     throw new AgentboxError(`Pagination of ${path} exceeded 10,000 pages`, 200, '');
   }
 
+  /**
+   * One POST, JSON in and out.
+   *
+   * **Deliberately not retried.** `get()` retries on 429 and 5xx because reading
+   * twice is harmless. Writing twice is not: `POST /enquiries` creates a contact
+   * and an enquiry, and a 502 can arrive after the CRM has already accepted the
+   * request. Retrying that turns one visitor's message into two records in
+   * someone's inbox. A failure here is reported once, and the caller decides.
+   */
+  async post<T = unknown>(path: string, body: unknown, query: AgentboxQuery = {}): Promise<T> {
+    const url = this.#buildUrl(path, query);
+
+    let response: Response;
+    try {
+      response = await this.#fetch(url, {
+        method: 'POST',
+        headers: {
+          'X-Client-ID': this.#credentials.clientId,
+          'X-API-Key': this.#credentials.apiKey,
+          accept: 'application/json',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      throw new AgentboxError(
+        `Agentbox POST ${path} failed before a response: ${error instanceof Error ? error.message : String(error)}`,
+        0,
+        '',
+      );
+    }
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new AgentboxError(`Agentbox ${response.status} for POST ${path}`, response.status, text.slice(0, 2000));
+    }
+
+    try {
+      return unwrapEnvelope(JSON.parse(text)) as T;
+    } catch {
+      throw new AgentboxError(`Agentbox returned non-JSON for POST ${path}`, response.status, text.slice(0, 2000));
+    }
+  }
+
   #buildUrl(path: string, query: AgentboxQuery): string {
     const url = new URL(`${this.#baseUrl}/${path.replace(/^\//, '')}`);
 
