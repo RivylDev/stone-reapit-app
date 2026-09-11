@@ -109,7 +109,20 @@ export class AgentboxClient {
 
     this.#credentials = credentials;
     this.#baseUrl = (options.baseUrl ?? AGENTBOX_BASE_URL).replace(/\/$/, '');
-    this.#fetch = options.fetchImpl ?? globalThis.fetch;
+    /*
+     * Bound to `globalThis`, not stored bare.
+     *
+     * `this.#fetch(url)` is a method call, so `fetch` runs with `this` set to
+     * this client. Node does not care. The Workers runtime does, and refuses
+     * with "Illegal invocation: function called with incorrect `this`
+     * reference". Every caller before the enquiry form ran under Node, in
+     * `scripts/`, so this sat unnoticed until the first call from inside a
+     * Worker — which was a POST to the CRM, and failed.
+     *
+     * `?.` so that a runtime with no global fetch falls through to the clear
+     * error below rather than a TypeError from `.bind`.
+     */
+    this.#fetch = options.fetchImpl ?? (globalThis.fetch?.bind(globalThis) as typeof fetch);
     this.#version = options.version ?? AGENTBOX_API_VERSION;
     this.#maxRetries = options.maxRetries ?? 3;
     this.#retryBaseMs = options.retryBaseMs ?? 500;

@@ -78,6 +78,12 @@ if (Astro.request.method === 'POST') {
     const outcome = await createEnquirySink(env as unknown as EnquiryEnv).submit(parsed.enquiry);
 
     if (outcome.status === 'sent') {
+      /*
+       * The CRM's id only, never the visitor's details. It is the one thread
+       * that ties a runtime-log line to a record in Agentbox, which is what you
+       * need when an agent says an enquiry never arrived.
+       */
+      console.log('[enquiry] sent to CRM, reference', outcome.reference ?? '(none returned)');
       return Astro.redirect(`${base}/?enquiry=sent#enquiry`, 303);
     }
     if (outcome.status === 'not-forwarded') {
