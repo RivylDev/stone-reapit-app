@@ -48,9 +48,24 @@ Adding them is a type change, so it needs a decision before anyone starts.
 
 **Three forms post into the CRM.** An "Ask a question" enquiry form on every
 property page (the site's primary lead capture), plus Request Appraisal under
-both Sell and Rent. All three are `POST /enquiries`. Access has been requested
-but nothing here writes to Agentbox yet, and building the forms is still a scope
-decision — the integration remains read-only until that is made.
+both Sell and Rent. All three are `POST /enquiries`.
+
+**A general enquiry form now exists**, on the index page, via
+`src/lib/enquiries/`. It is **off by default**: nothing is sent unless
+`AGENTBOX_ENQUIRIES=true` and both Agentbox credentials are present, and when
+off it stores nothing either. Verified 11 September 2026 that the sandbox key
+*can* write — one test enquiry was accepted, CRM reference **1634**, contact
+`claude-form-test-20260911@example.com`. That record is safe to delete.
+
+**The Agentbox API key is restricted by source IP.** Requests from an address
+not on its allowlist get `401 Access Denied — "The IP is not allowed for the
+provided API key"`, for reads as well as writes, before the endpoint is even
+considered. The test above worked only from a dedicated IP. Webflow Cloud runs
+on Cloudflare, whose Workers send from a large shared pool of addresses rather
+than a fixed one, so **the live form cannot reach Agentbox, and neither can any
+sync moved onto Webflow Cloud**, until Reapit removes the restriction, allowlists
+Cloudflare's published ranges, or the calls go through a relay with a fixed IP.
+Do not switch the form on in a deployed environment before that is resolved.
 
 **Endpoint scope.** `docs/REAPIT-API-ENDPOINTS.md` is the submission to the
 Reapit API team: 16 endpoints, 15 read and one write. If code needs an endpoint
