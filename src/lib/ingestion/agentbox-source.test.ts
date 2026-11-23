@@ -262,7 +262,7 @@ describe('AgentboxSource.fetchAll', () => {
     assert.equal(calls[0].url.searchParams.get('include'), 'relatedStaffMembers,mainDescription');
     assert.equal(
       calls[1].url.searchParams.get('include'),
-      'images,relatedStaffMembers,mainDescription,inspectionDates,documents',
+      'images,floorPlans,relatedStaffMembers,mainDescription,inspectionDates,documents',
     );
   });
 
@@ -417,6 +417,20 @@ describe('mapping vocabulary', () => {
     assert.deepEqual(listing.inspections, [
       { startsAt: '2026-11-25T01:00:00.000Z', endsAt: '2026-11-25T01:30:00.000Z' },
       { startsAt: '2026-11-28T00:00:00.000Z', endsAt: '2026-11-28T00:30:00.000Z' },
+    ]);
+  });
+
+  it('reads floor plans from the camel-case floorPlans key production sends', () => {
+    const listing = mapListing(listingPayload('1234567', {
+      floorPlans: [
+        { id: '131126', url: 'https://x/floorplan/2.jpg', title: '', thumbnail: 'https://x/floorplan/a/2.jpg', order: '2' },
+        { id: '131125', url: 'https://x/floorplan/1.jpg', title: '', thumbnail: 'https://x/floorplan/a/1.jpg', order: '1' },
+      ],
+    }));
+
+    assert.deepEqual(listing.floorplans, [
+      { url: 'https://x/floorplan/1.jpg', order: 1 },
+      { url: 'https://x/floorplan/2.jpg', order: 2 },
     ]);
   });
 

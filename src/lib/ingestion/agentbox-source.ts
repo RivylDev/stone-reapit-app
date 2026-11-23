@@ -54,9 +54,10 @@ const DEFAULT_PAGE_SIZE = 100;
  * correct, which is exactly the kind of failure that ships.
  */
 const LIST_INCLUDES = 'relatedStaffMembers,mainDescription';
-// `inspectionDates` and `documents` confirmed on production 23 Nov 2026; like
-// `images`, neither appears unless named.
-const DETAIL_INCLUDES = 'images,relatedStaffMembers,mainDescription,inspectionDates,documents';
+// `inspectionDates`, `documents` and `floorPlans` confirmed on production
+// 23 Nov 2026; like `images`, none appears unless named. `floorPlans` is
+// case-sensitive: the lowercase spelling is silently ignored.
+const DETAIL_INCLUDES = 'images,floorPlans,relatedStaffMembers,mainDescription,inspectionDates,documents';
 
 /**
  * Detail fetches in flight at once during hydration.

@@ -188,7 +188,7 @@ const CONSUMED_KEYS = new Set([
   'id', 'externalId', 'type', 'status', 'marketingStatus',
   'property', 'officeId', 'officeName', 'relatedStaffMembers',
   'displayPrice', 'searchPrice', 'searchWeeklyRent', 'displayRent', 'listedRent',
-  'mainHeadline', 'mainDescription', 'images', 'floorplans',
+  'mainHeadline', 'mainDescription', 'images', 'floorplans', 'floorPlans',
   'listedDate', 'soldDate', 'leasedDate', 'lastModified', 'firstCreated',
   'webLink', 'hiddenListing', 'offMarketListing',
   'method', 'auctionDate', 'auctionVenue', 'inspectionDates', 'documents',
@@ -320,7 +320,8 @@ export function mapListing(raw: unknown): Listing {
     // `images` is absent from the list endpoint entirely — no `include` value
     // adds it. A list-only sync yields empty arrays here, by design.
     images: mapImages(pick(raw, 'images')),
-    floorplans: mapFloorplans(pick(raw, 'floorplans')),
+    // Camel case on production; the lowercase spelling is kept as a fallback.
+    floorplans: mapFloorplans(pick(raw, 'floorPlans', 'floorplans')),
     videoUrl: asString(pick(raw, 'videoLink', 'videoUrl')),
 
     // Confirmed against production 23 Nov 2026. `auctionDate` carries an
@@ -420,10 +421,12 @@ function mapDocuments(value: unknown): Listing['documents'] {
 }
 
 /**
- * No floorplan collection has appeared on any sampled payload — not on the
- * list endpoint, not on the detail endpoint. This stays wired to a `floorplans`
- * key and a type discriminator so an instance that does carry them maps
- * without a code change, and yields an empty array on one that does not.
+ * Floor plans, from `include=floorPlans` on the detail endpoint:
+ * `[{ id, url, title, thumbnail, order }]`.
+ *
+ * Confirmed on production 23 Nov 2026 (27 of 30 for-sale listings carry one).
+ * The include is case-sensitive: `floorplans` is accepted and silently ignored,
+ * which is why earlier probes concluded there were none.
  */
 function mapFloorplans(value: unknown): Listing['floorplans'] {
   // Every entry under a dedicated `floorplans` key is one; no discriminator to
