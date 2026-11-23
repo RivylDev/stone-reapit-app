@@ -192,6 +192,8 @@ const CONSUMED_KEYS = new Set([
   'listedDate', 'soldDate', 'leasedDate', 'lastModified', 'firstCreated',
   'webLink', 'hiddenListing', 'offMarketListing',
   'method', 'auctionDate', 'auctionVenue', 'inspectionDates', 'documents',
+  'auctionVenueDetails', 'externalLinks', 'availableDate', 'bond', 'project',
+  'soldPriceConfidential',
 ]);
 
 /**
@@ -266,8 +268,19 @@ export function mapListing(raw: unknown): Listing {
   const parsedPrice = asNumber(rawPrice);
   const priceValue = parsedPrice === 0 ? null : parsedPrice;
 
-  const priceDisplay =
-    asString(pick(raw, 'displayPrice', 'displayRent.value')) ?? '';
+  const soldPriceConfidential = asBoolean(pick(raw, 'soldPriceConfidential')) ?? false;
+
+  /*
+   * A confidential sale can still carry a figure in `displayPrice`: production
+   * showed 8 of 15 recent sales marked confidential, and at least one with the
+   * sold price typed into the display text. On a closed listing marked
+   * confidential, any dollar figure is replaced rather than trusted.
+   */
+  const listedDisplay = asString(pick(raw, 'displayPrice', 'displayRent.value')) ?? '';
+  const isClosed = status === 'sold' || status === 'leased';
+  const priceDisplay = soldPriceConfidential && isClosed && showsAPrice(listedDisplay)
+    ? 'Price undisclosed'
+    : listedDisplay;
 
   /*
    * Display and filterability are separate concerns, and `searchPrice` is
@@ -279,6 +292,8 @@ export function mapListing(raw: unknown): Listing {
   const priceSearchable = priceValue !== null;
 
   const landSize = asNumber(pick(raw, 'property.landArea.value'));
+  const links = mapLinks(pick(raw, 'externalLinks'));
+  const venue = mapVenue(pick(raw, 'auctionVenueDetails'));
 
   return {
     listingId,
@@ -304,6 +319,7 @@ export function mapListing(raw: unknown): Listing {
     priceValue,
     priceDisplay,
     priceSearchable,
+    soldPriceConfidential,
 
     bedrooms: asNumber(pick(raw, 'property.bedrooms')),
     bathrooms: asNumber(pick(raw, 'property.bathrooms')),
@@ -322,17 +338,29 @@ export function mapListing(raw: unknown): Listing {
     images: mapImages(pick(raw, 'images')),
     // Camel case on production; the lowercase spelling is kept as a fallback.
     floorplans: mapFloorplans(pick(raw, 'floorPlans', 'floorplans')),
-    videoUrl: asString(pick(raw, 'videoLink', 'videoUrl')),
+    // Production keeps videos in `externalLinks`, not a video field.
+    videoUrl: asString(pick(raw, 'videoLink', 'videoUrl')) ?? links.find((link) => link.kind === 'video')?.url ?? null,
 
     // Confirmed against production 23 Nov 2026. `auctionDate` carries an
     // offset (`2026-10-16T17:30:00+11:00`) and survives a switch to private
     // treaty, so it is only meaningful alongside `saleMethod`.
     saleMethod: asString(pick(raw, 'method')),
     auctionAt: asIsoDate(pick(raw, 'auctionDate')),
-    auctionVenue: asString(pick(raw, 'auctionVenue')),
+    auctionVenue: asString(pick(raw, 'auctionVenue'))
+      ?? ([venue?.name, venue?.address].filter(Boolean).join(', ') || null),
+    auctionVenueDetails: venue,
     // Both arrive only on `/listings/{id}`, and only when named in `include`.
     inspections: mapInspections(pick(raw, 'inspectionDates')),
     documents: mapDocuments(pick(raw, 'documents')),
+    links,
+
+    // Rentals only. `availableDate` is a bare date; kept as one.
+    availableFrom: asDateOnly(pick(raw, 'availableDate')),
+    bond: asNumber(pick(raw, 'bond')),
+
+    // `project` is a reference object: { id, name, status, category, links }.
+    projectId: asString(pick(raw, 'project.id')),
+    projectName: asString(pick(raw, 'project.name')),
 
     officeId: asString(pick(raw, 'officeId')) ?? '',
     agentIds: mapAgentIds(pick(raw, 'relatedStaffMembers')),
@@ -378,6 +406,57 @@ function mapImages(value: unknown): Listing['images'] {
     }))
     .filter((image) => image.url !== '')
     .sort((a, b) => a.order - b.order);
+}
+
+/** A dollar amount, or a thousands-grouped number that is not an area. */
+function showsAPrice(text: string): boolean {
+  return /\$\s*\d/.test(text) || /\b\d{1,3}(?:,\d{3})+\b(?!\s*(?:sq|m2|m²|ha|acre))/i.test(text);
+}
+
+/** `YYYY-MM-DD`, or null. Agentbox sends bare dates for `availableDate`. */
+function asDateOnly(value: unknown): string | null {
+  const raw = asString(value);
+  return raw !== null && /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : null;
+}
+
+/**
+ * `externalLinks`, from `include=externalLinks` on the detail endpoint:
+ * `[{ type, title, url, order }]`. Production types seen 23 Nov 2026:
+ * "Youtube Video Link", "Virtual Tour Link", "General External Link" (titled
+ * "Furnish Link", "Panorama Link", "Kitchen Styling Link", "Property Tour",
+ * "Iguide") and "External Contract Link" (Prepared.com.au).
+ */
+function mapLinks(value: unknown): Listing['links'] {
+  return asArray(value)
+    .map((entry, index) => {
+      const type = asString(pick(entry, 'type')) ?? '';
+      const title = asString(pick(entry, 'title')) ?? '';
+      const url = asString(pick(entry, 'url')) ?? '';
+      return { kind: linkKind(type, title, url), title: title || type || 'Link', url, order: asNumber(pick(entry, 'order')) ?? index };
+    })
+    .filter((link) => /^https?:\/\//i.test(link.url))
+    .sort((a, b) => a.order - b.order);
+}
+
+function linkKind(type: string, title: string, url: string): Listing['links'][number]['kind'] {
+  const label = `${type} ${title}`.toLowerCase();
+  if (label.includes('contract')) return 'contract';
+  if (label.includes('furnish')) return 'furnish';
+  if (label.includes('panorama')) return 'panorama';
+  if (label.includes('styling')) return 'styling';
+  if (label.includes('video') || /youtu\.?be|vimeo\.com/i.test(url)) return 'video';
+  if (label.includes('tour') || label.includes('iguide') || /matterport|iguide/i.test(url)) return 'virtualTour';
+  return 'other';
+}
+
+/** `auctionVenueDetails`: `{ name, address, phone }`, or null when empty. */
+function mapVenue(value: unknown): Listing['auctionVenueDetails'] {
+  const venue = {
+    name: asString(pick(value, 'name')),
+    address: asString(pick(value, 'address')),
+    phone: asString(pick(value, 'phone')),
+  };
+  return venue.name || venue.address || venue.phone ? venue : null;
 }
 
 /**
@@ -662,9 +741,10 @@ export function mapStaffRecord(raw: unknown): SourceAgent | null {
     officeId: asString(pick(raw, 'officeId')),
     phone: (hideMobile ? null : asString(pick(raw, 'mobile'))) ?? asString(pick(raw, 'phone')),
     email: asString(pick(raw, 'email')),
-    // No photo field exists on either staff endpoint. Kept for the fixture
-    // source, which does supply one.
-    photoUrl: asString(pick(raw, 'photo', 'photoUrl', 'imageUrl')),
+    // `/staff/{id}` with `include=images` returns the headshot (production,
+    // 23 Nov 2026: 40 of 40 sampled web agents). The list route has no photo.
+    // `photo`/`photoUrl` stay for the fixture source.
+    photoUrl: asString(pick(raw, 'images.0.url', 'photo', 'photoUrl', 'imageUrl')),
     jobTitle: asString(pick(raw, 'jobTitle')),
     role: asString(pick(raw, 'role')),
     status: asString(pick(raw, 'status')),

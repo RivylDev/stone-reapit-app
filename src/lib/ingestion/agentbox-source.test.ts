@@ -15,7 +15,7 @@ import { describe, it } from 'node:test';
 
 import { AgentboxClient, AgentboxError, isSandboxClientId } from './agentbox-client.ts';
 import { AgentboxSource } from './agentbox-source.ts';
-import { mapListing, mapStatus, mapCategory, mapStaffMembers } from './agentbox-mapping.ts';
+import { mapListing, mapStatus, mapCategory, mapStaffMembers, mapStaffRecord } from './agentbox-mapping.ts';
 
 const SANDBOX_CLIENT_ID = btoa('https://sandbox.example.agentboxcrm.com.au/admin/');
 const CREDENTIALS = { clientId: SANDBOX_CLIENT_ID, apiKey: 'test-key' };
@@ -262,7 +262,7 @@ describe('AgentboxSource.fetchAll', () => {
     assert.equal(calls[0].url.searchParams.get('include'), 'relatedStaffMembers,mainDescription');
     assert.equal(
       calls[1].url.searchParams.get('include'),
-      'images,floorPlans,relatedStaffMembers,mainDescription,inspectionDates,documents',
+      'images,floorPlans,relatedStaffMembers,mainDescription,inspectionDates,documents,externalLinks',
     );
   });
 
@@ -432,6 +432,66 @@ describe('mapping vocabulary', () => {
       { url: 'https://x/floorplan/1.jpg', order: 1 },
       { url: 'https://x/floorplan/2.jpg', order: 2 },
     ]);
+  });
+
+  it('sorts external links into videos, tours and Diakrit renders', () => {
+    const listing = mapListing(listingPayload('1234567', {
+      externalLinks: [
+        { type: 'General External Link', title: 'Furnish Link', url: 'https://cdn.diakrit.com/product/furnish/1', order: '4' },
+        { type: 'Youtube Video Link', title: 'Property Video', url: 'https://youtu.be/abc', order: '1' },
+        { type: 'General External Link', title: 'Panorama Link', url: 'https://cdn.diakrit.com/product/panorama/2', order: '2' },
+        { type: 'General External Link', title: 'Kitchen Styling Link', url: 'https://cdn.diakrit.com/product/styling/3', order: '3' },
+        { type: 'Virtual Tour Link', title: 'Tour', url: 'https://my.matterport.com/show/?m=x', order: '5' },
+        { type: 'External Contract Link', title: 'Prepared.com.au Contract', url: 'https://crm.prepared.com.au/contract/x', order: '6' },
+        { type: 'General External Link', title: 'Broken', url: 'not a url', order: '7' },
+      ],
+    }));
+
+    assert.deepEqual(listing.links.map((link) => link.kind),
+      ['video', 'panorama', 'styling', 'furnish', 'virtualTour', 'contract']);
+    assert.equal(listing.videoUrl, 'https://youtu.be/abc');
+  });
+
+  it('keeps a dollar figure out of a confidential sold price', () => {
+    const sold = (displayPrice: string) => mapListing(listingPayload('1234567', {
+      type: 'Sale', marketingStatus: 'Sold', soldPriceConfidential: 'true', displayPrice,
+    }));
+
+    assert.equal(sold('$2,250,000').priceDisplay, 'Price undisclosed');
+    assert.equal(sold('Sold for 2,250,000').priceDisplay, 'Price undisclosed');
+    assert.equal(sold('SOLD - Contact Agent').priceDisplay, 'SOLD - Contact Agent');
+    assert.equal(sold('SOLD - 1,017sqm block').priceDisplay, 'SOLD - 1,017sqm block');
+    assert.equal(sold('$2,250,000').soldPriceConfidential, true);
+
+    // An open listing's guide is the vendor's to publish; confidentiality is about the sale.
+    const open = mapListing(listingPayload('1234567', { soldPriceConfidential: 'true', displayPrice: '$1,200,000' }));
+    assert.equal(open.priceDisplay, '$1,200,000');
+  });
+
+  it('maps rental availability, bond, project and auction venue', () => {
+    const listing = mapListing(listingPayload('1234567', {
+      availableDate: '2026-12-07',
+      bond: '2,500.00',
+      project: { id: '100J0137', name: 'Pienza, Neutral Bay', status: 'Available' },
+      auctionVenue: '',
+      auctionVenueDetails: { name: 'Stone Macarthur Campbelltown Office', address: '56 Queen Street, Campbelltown', phone: '02 4625 0201' },
+    }));
+
+    assert.equal(listing.availableFrom, '2026-12-07');
+    assert.equal(listing.bond, 2500);
+    assert.equal(listing.projectId, '100J0137');
+    assert.equal(listing.projectName, 'Pienza, Neutral Bay');
+    assert.equal(listing.auctionVenue, 'Stone Macarthur Campbelltown Office, 56 Queen Street, Campbelltown');
+    assert.equal(listing.auctionVenueDetails?.phone, '02 4625 0201');
+  });
+
+  it('takes the agent headshot from the staff detail images', () => {
+    const agent = mapStaffRecord({
+      id: '100stf5162', firstName: 'A', lastName: 'B',
+      images: [{ id: '5623', url: 'https://images.sales.reapit.com.au/1929/staff/100stf5162/photo/1.jpg?wm=0', thumbnails: [] }],
+    });
+
+    assert.equal(agent?.photoUrl, 'https://images.sales.reapit.com.au/1929/staff/100stf5162/photo/1.jpg?wm=0');
   });
 
   it('keeps the sale method beside the auction date, which can be stale', () => {

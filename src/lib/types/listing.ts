@@ -27,6 +27,25 @@ export interface ListingDocument {
   urlExpiresAt: string | null;
 }
 
+/**
+ * A link Agentbox keeps beside the listing: a YouTube video, a virtual tour, or
+ * one of Diakrit's Furnish, Panorama and Styling renders. `kind` is our reading
+ * of Agentbox's `type` and `title`; the original title is kept for display.
+ */
+export interface ListingLink {
+  kind: 'video' | 'virtualTour' | 'furnish' | 'panorama' | 'styling' | 'contract' | 'other';
+  title: string;
+  url: string;
+  order: number;
+}
+
+/** Where an auction is held, from `auctionVenueDetails`. */
+export interface AuctionVenueDetails {
+  name: string | null;
+  address: string | null;
+  phone: string | null;
+}
+
 export type ListingStatus =
   | 'forSale' | 'forRent' | 'underOffer' | 'sold' | 'leased' | 'withdrawn';
 
@@ -52,6 +71,12 @@ export interface Listing {
   priceDisplay: string;
   /** False when the vendor hides the price. */
   priceSearchable: boolean;
+  /**
+   * Agentbox's `soldPriceConfidential`. When true on a sold or leased listing,
+   * `priceDisplay` never carries a dollar figure (the mapping replaces one with
+   * "Price undisclosed").
+   */
+  soldPriceConfidential: boolean;
   bedrooms: number | null;
   bathrooms: number | null;
   carspaces: number | null;
@@ -71,9 +96,19 @@ export interface Listing {
   saleMethod: string | null;
   auctionAt: string | null;
   auctionVenue: string | null;
+  auctionVenueDetails: AuctionVenueDetails | null;
   /** Upcoming and past open homes. Only the detail endpoint returns them. */
   inspections: ListingInspection[];
   documents: ListingDocument[];
+  /** Videos, tours and Diakrit renders. Detail endpoint, `include=externalLinks`. */
+  links: ListingLink[];
+  /** Rentals: the date the property is free, `YYYY-MM-DD`. */
+  availableFrom: string | null;
+  /** Rentals: bond in dollars. */
+  bond: number | null;
+  /** The New Projects development this listing belongs to, if any. */
+  projectId: string | null;
+  projectName: string | null;
   officeId: string;
   agentIds: string[];
   listedAt: string | null;
@@ -82,7 +117,10 @@ export interface Listing {
 }
 
 /** The fields added on 23 Nov 2026, which the committed fixtures predate. */
-type LaterListingFields = 'saleMethod' | 'auctionAt' | 'auctionVenue' | 'inspections' | 'documents';
+type LaterListingFields =
+  | 'saleMethod' | 'auctionAt' | 'auctionVenue' | 'auctionVenueDetails' | 'inspections'
+  | 'documents' | 'links' | 'availableFrom' | 'bond' | 'projectId' | 'projectName'
+  | 'soldPriceConfidential';
 
 /**
  * Widens a listing that may predate the auction, open-home and document fields.
@@ -101,5 +139,12 @@ export function withListingDefaults(
     auctionVenue: listing.auctionVenue ?? null,
     inspections: listing.inspections ?? [],
     documents: listing.documents ?? [],
+    links: listing.links ?? [],
+    availableFrom: listing.availableFrom ?? null,
+    bond: listing.bond ?? null,
+    projectId: listing.projectId ?? null,
+    projectName: listing.projectName ?? null,
+    auctionVenueDetails: listing.auctionVenueDetails ?? null,
+    soldPriceConfidential: listing.soldPriceConfidential ?? false,
   };
 }

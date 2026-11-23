@@ -42,7 +42,8 @@ const LISTING_COLUMNS = [
   'price_searchable', 'bedrooms', 'bathrooms', 'carspaces', 'land_size',
   'land_size_unit', 'headline', 'description', 'features', 'floorplans',
   'video_url', 'sale_method', 'auction_at', 'auction_venue', 'inspections',
-  'documents', 'office_id', 'listed_at', 'sold_at', 'modified_at',
+  'documents', 'links', 'available_from', 'bond', 'project_id', 'project_name',
+  'auction_venue_details', 'sold_price_confidential', 'office_id', 'listed_at', 'sold_at', 'modified_at',
   'raw_payload', 'last_seen_at', 'deleted_at',
 ];
 
@@ -157,6 +158,9 @@ export const POST: APIRoute = async ({ request }) => {
         JSON.stringify(l.features), JSON.stringify(l.floorplans),
         l.videoUrl, l.saleMethod, l.auctionAt, l.auctionVenue,
         JSON.stringify(l.inspections), JSON.stringify(l.documents),
+        JSON.stringify(l.links), l.availableFrom, l.bond, l.projectId, l.projectName,
+        l.auctionVenueDetails === null ? null : JSON.stringify(l.auctionVenueDetails),
+        l.soldPriceConfidential ? 1 : 0,
         l.officeId, l.listedAt, l.soldAt, l.modifiedAt,
         JSON.stringify(l), seenAt, null,
       ));

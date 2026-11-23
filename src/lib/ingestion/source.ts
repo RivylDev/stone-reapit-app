@@ -37,9 +37,9 @@ export interface SourceOffice {
  *
  * Note what is absent. `/staff/{id}` also returns `dateOfBirth` and
  * `homeAddress`; they are employee personal data and are dropped at the mapping
- * boundary, so they cannot reach this type, the database, or a page. There is
- * no `photo` field on the Agentbox staff endpoints at all — `photoUrl` exists
- * for the fixture source and stays null against a real feed.
+ * boundary, so they cannot reach this type, the database, or a page. The
+ * headshot comes from `/staff/{id}` with `include=images` (confirmed on
+ * production 23 Nov 2026), so `photoUrl` is filled for hydrated staff only.
  */
 export interface SourceAgent {
   agentId: string;

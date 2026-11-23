@@ -54,10 +54,14 @@ const DEFAULT_PAGE_SIZE = 100;
  * correct, which is exactly the kind of failure that ships.
  */
 const LIST_INCLUDES = 'relatedStaffMembers,mainDescription';
-// `inspectionDates`, `documents` and `floorPlans` confirmed on production
-// 23 Nov 2026; like `images`, none appears unless named. `floorPlans` is
-// case-sensitive: the lowercase spelling is silently ignored.
-const DETAIL_INCLUDES = 'images,floorPlans,relatedStaffMembers,mainDescription,inspectionDates,documents';
+// `inspectionDates`, `documents`, `floorPlans` and `externalLinks` confirmed
+// on production 23 Nov 2026; like `images`, none appears unless named.
+// `floorPlans` is case-sensitive: the lowercase spelling is silently ignored.
+const DETAIL_INCLUDES =
+  'images,floorPlans,relatedStaffMembers,mainDescription,inspectionDates,documents,externalLinks';
+
+/** `/staff/{id}` returns the headshot only when `images` is named. */
+const STAFF_DETAIL_INCLUDES = 'images';
 
 /**
  * Detail fetches in flight at once during hydration.
@@ -300,6 +304,7 @@ export class AgentboxSource implements ListingSource, ReferenceDataSource, Direc
         try {
           const body = await this.#client.get<Record<string, unknown>>(
             `/staff/${encodeURIComponent(member.agentId)}`,
+            { include: STAFF_DETAIL_INCLUDES },
           );
           const detail = mapStaffRecord(body?.staffMember ?? body);
 
@@ -308,6 +313,7 @@ export class AgentboxSource implements ListingSource, ReferenceDataSource, Direc
           if (detail !== null) {
             member.profile = detail.profile ?? member.profile;
             member.jobTitle = detail.jobTitle ?? member.jobTitle;
+            member.photoUrl = detail.photoUrl ?? member.photoUrl;
             if (detail.specialistAreas.length > 0) {
               member.specialistAreas = detail.specialistAreas;
             }

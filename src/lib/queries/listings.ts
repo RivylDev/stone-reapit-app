@@ -1,4 +1,6 @@
-import type { ListingDocument, ListingInspection, ListingStatus } from '../types/listing.ts';
+import type {
+  AuctionVenueDetails, ListingDocument, ListingInspection, ListingLink, ListingStatus,
+} from '../types/listing.ts';
 
 /**
  * The listing search.
@@ -414,8 +416,16 @@ export interface ListingDetail extends ListingSummary {
   saleMethod: string | null;
   auctionAt: string | null;
   auctionVenue: string | null;
+  auctionVenueDetails: AuctionVenueDetails | null;
   inspections: ListingInspection[];
   documents: ListingDocument[];
+  links: ListingLink[];
+  availableFrom: string | null;
+  bond: number | null;
+  projectId: string | null;
+  projectName: string | null;
+  /** When true, never show a sold or leased figure. `priceDisplay` is already safe. */
+  soldPriceConfidential: boolean;
   soldAt: string | null;
   agents: ListingAgent[];
   office: ListingOffice | null;
@@ -437,6 +447,13 @@ interface DetailRow extends ListingRow {
   auction_venue: string | null;
   inspections: string;
   documents: string;
+  links: string;
+  available_from: string | null;
+  bond: number | null;
+  project_id: string | null;
+  project_name: string | null;
+  auction_venue_details: string | null;
+  sold_price_confidential: number;
   sold_at: string | null;
 }
 
@@ -455,6 +472,17 @@ function parseJsonArray<T>(value: string | null): T[] {
   }
 }
 
+/** A JSON object column, or null when empty or malformed. */
+function parseJsonObject<T>(value: string | null): T | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as T : null;
+  } catch {
+    return null;
+  }
+}
+
 const DETAIL_COLUMNS =
   'l.listing_id, l.unique_id, l.slug, l.status, l.property_type, l.category, '
   + 'l.unit_number, l.street_number, l.street, l.suburb, l.state, l.postcode, '
@@ -463,6 +491,8 @@ const DETAIL_COLUMNS =
   + 'l.bedrooms, l.bathrooms, l.carspaces, l.land_size, l.land_size_unit, '
   + 'l.headline, l.description, l.features, l.floorplans, l.video_url, '
   + 'l.sale_method, l.auction_at, l.auction_venue, l.inspections, l.documents, '
+  + 'l.links, l.available_from, l.bond, l.project_id, l.project_name, '
+  + 'l.auction_venue_details, l.sold_price_confidential, '
   + 'l.office_id, l.listed_at, l.sold_at, l.modified_at';
 
 async function hydrate(db: D1Database, row: DetailRow): Promise<ListingDetail> {
@@ -545,6 +575,13 @@ async function hydrate(db: D1Database, row: DetailRow): Promise<ListingDetail> {
     auctionVenue: row.auction_venue,
     inspections: parseJsonArray<ListingInspection>(row.inspections),
     documents: parseJsonArray<ListingDocument>(row.documents),
+    links: parseJsonArray<ListingLink>(row.links),
+    availableFrom: row.available_from,
+    bond: row.bond,
+    projectId: row.project_id,
+    projectName: row.project_name,
+    auctionVenueDetails: parseJsonObject<AuctionVenueDetails>(row.auction_venue_details),
+    soldPriceConfidential: row.sold_price_confidential === 1,
     soldAt: row.sold_at,
     agents,
     office,
