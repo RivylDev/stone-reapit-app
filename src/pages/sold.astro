@@ -1,0 +1,17 @@
+---
+import ListingsBrowser from "../components/ListingsBrowser.astro";
+import { SECTIONS } from "../lib/queries/sections";
+
+/*
+ * /sold — one of the five browse sections, at the app mount root.
+ *
+ * A file per section rather than one `[section].astro`: these are a fixed,
+ * known set, and a dynamic route here would compete with every other
+ * top-level page for the same URLs.
+ *
+ * Server-rendered: listing data must be in view-source with JavaScript off.
+ */
+export const prerender = false;
+---
+
+<ListingsBrowser section={SECTIONS.sold} />

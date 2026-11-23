@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 
 import type { APIRoute } from 'astro';
-import type { Listing } from '../../lib/types/listing.ts';
+import { withListingDefaults, type Listing } from '../../lib/types/listing.ts';
 import type { SeedOffice, SeedAgent } from '../../lib/ingestion/seed-data.ts';
 
 /**
@@ -41,7 +41,9 @@ const LISTING_COLUMNS = [
   'display_address', 'latitude', 'longitude', 'price_value', 'price_display',
   'price_searchable', 'bedrooms', 'bathrooms', 'carspaces', 'land_size',
   'land_size_unit', 'headline', 'description', 'features', 'floorplans',
-  'video_url', 'office_id', 'listed_at', 'sold_at', 'modified_at',
+  'video_url', 'sale_method', 'auction_at', 'auction_venue', 'inspections',
+  'documents', 'links', 'available_from', 'bond', 'project_id', 'project_name',
+  'auction_venue_details', 'sold_price_confidential', 'office_id', 'listed_at', 'sold_at', 'modified_at',
   'raw_payload', 'last_seen_at', 'deleted_at',
 ];
 
@@ -100,7 +102,9 @@ export const POST: APIRoute = async ({ request }) => {
   const officesFile = await import('../../../seed-offices.dev.json');
   const agentsFile = await import('../../../seed-agents.dev.json');
 
-  const feed = (listingsFile.default as { records: Listing[] }).records;
+  // The fixtures predate the auction, open-home and document fields.
+  const feed = (listingsFile.default as unknown as { records: Parameters<typeof withListingDefaults>[0][] })
+    .records.map(withListingDefaults);
   const offices = (officesFile.default as { records: SeedOffice[] }).records;
   const agents = (agentsFile.default as { records: SeedAgent[] }).records;
 
@@ -152,7 +156,12 @@ export const POST: APIRoute = async ({ request }) => {
         l.priceSearchable ? 1 : 0, l.bedrooms, l.bathrooms, l.carspaces,
         l.landSize, l.landSizeUnit, l.headline, l.description,
         JSON.stringify(l.features), JSON.stringify(l.floorplans),
-        l.videoUrl, l.officeId, l.listedAt, l.soldAt, l.modifiedAt,
+        l.videoUrl, l.saleMethod, l.auctionAt, l.auctionVenue,
+        JSON.stringify(l.inspections), JSON.stringify(l.documents),
+        JSON.stringify(l.links), l.availableFrom, l.bond, l.projectId, l.projectName,
+        l.auctionVenueDetails === null ? null : JSON.stringify(l.auctionVenueDetails),
+        l.soldPriceConfidential ? 1 : 0,
+        l.officeId, l.listedAt, l.soldAt, l.modifiedAt,
         JSON.stringify(l), seenAt, null,
       ));
 

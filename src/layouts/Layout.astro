@@ -3,9 +3,18 @@ import "../styles/global.css";
 
 interface Props {
   title?: string;
+  /** Meta description. Omitted from the head when absent, never emitted empty. */
+  description?: string;
+  /** Absolute canonical URL. Listing pages set it so that the filtered routes
+   *  that link into them do not fragment the same page across several URLs. */
+  canonical?: string;
 }
 
-const { title = "Webflow Cloud Astro App" } = Astro.props;
+const {
+  title = "Webflow Cloud Astro App",
+  description,
+  canonical,
+} = Astro.props;
 ---
 
 <!doctype html>
@@ -20,6 +29,8 @@ const { title = "Webflow Cloud Astro App" } = Astro.props;
     />
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    {canonical && <link rel="canonical" href={canonical} />}
   </head>
   <body>
     <slot />

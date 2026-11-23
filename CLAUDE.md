@@ -15,8 +15,76 @@ Stack: Astro on Webflow Cloud, which runs on Cloudflare Workers. D1 for storage.
 - Webflow Cloud app deployed and mounted at `/app`
 - D1 binding configured in `wrangler.json`
 - Seed data in the repo: `seed-listings.json` (5,376 records), `seed-listings-demo.json` (500), `seed-offices.json` (76), `seed-agents.json` (837)
-- A `Listing Card` component exists in Webflow, being prepared for DevLink export
-- **No Reapit API access.** Credentials have not been issued. Everything runs on seed data.
+- A `Listing Card` component exists in Webflow and **is exported** — `src/devlink/` is
+  real DevLink output, rendered by `listings.astro`. Authenticate with
+  `npx webflow auth login`; note DevLink prefixes props with their Designer property
+  group, so `suburb` arrives as `listingSuburb` (mapping table in ARCHITECTURE §5)
+- **Real data on staging, 23 Nov 2026 (Eugene: "push it on webflow cloud ... replace it with the current data").** Webflow Cloud's D1 is reachable only from inside the Worker and the Agentbox key is IP-locked, so `src/pages/api/import.ts` (SEED_TOKEN, POST JSON only) accepts mapped offices, agents and listings, and `retire-fixtures` soft-deletes the synthetic seed rows by exact ID. `scripts/import-remote.ts` runs on an allowlisted machine (Eugene's NordVPN dedicated IP), hydrates through `AgentboxSource` and posts in batches: directory, all Available and Under Contract, newest 300 sold and 150 leased. Staging is a snapshot, not a sync. `/api/listings.json` now returns `priceValue: null` for sold and leased (a closed listing's search price can be a confidential sale price). Astro rejects form-encoded cross-site POSTs, so callers send `content-type: application/json`.
+- **Consistent card price line, 23 Nov 2026 (Eugene: "build the consistent version").** Agents type `displayPrice` freely ("AUCTION | Shaun Ramani", "NEW TO MARKET", names and phone numbers in sold prices, three rent formats), and the current site prints it verbatim. `src/lib/price-label.ts` `cardPriceLabel` builds the card and search line from status and sale method, keeping only a dollar figure from the agent's text ("Auction · Guide $640,000", "Contact agent", "$520 per week", "Sold · Price undisclosed"). `ListingSummary.priceLabel` carries it; cards, agent and office pages and the JSON API use it. The property page keeps the agent's exact wording. Pending Stone's answer at the 24 Nov walkthrough (question 9).
+- **Six more production fields mapped, 23 Nov 2026 (Eugene: "yes" to all six).** `floorPlans` include (case-sensitive) fixed first. Then: `externalLinks` include mapped to `links` (video, virtualTour, furnish, panorama, styling, contract, other) and `videoUrl` from the first video; agent headshots via `include=images` on `/staff/{id}` into `photo_url` (823 of 840 web agents); `soldPriceConfidential`, with any dollar figure in a confidential sold or leased `priceDisplay` replaced by "Price undisclosed"; rental `availableFrom` and `bond`; `auctionVenueDetails`; listing `projectId` and `projectName`. Migration 0004. Not available on the approved endpoints: agent testimonials, `/projects/{id}`. Pushed and deployed to the `staging` environment the same day; migrations 0003 and 0004 applied there.
+- **Production key tested, 23 Nov 2026 (Eugene asked: "Can we try and test first locally").** Read-only, from Eugene's Mac on his NordVPN dedicated IP only; his home IP gets the 401 IP lock, so the live sync still needs a fixed-IP relay. Confirmed on production: `include=inspectionDates` and `include=documents` on `/listings/{id}` (neither appears unless named), `auctionDate` with offset and stale after a switch to private treaty, `documents` returning the private agency agreement. Mapped since: `saleMethod`, `auctionAt`, `auctionVenue`, `inspections`, and `documents` filtered to web-display and not private (migration 0003, both loaders, the detail query; the property page does not render them yet). Hydration concurrency 6 to 5, Reapit's per-key limit. Scale: 181,726 on-market records (mostly Sold), 2,436 Available, so a fully hydrated sync is ~180k detail calls, about 12.5 hours at 240 a minute.
+- **Reapit sandbox connected.** `AgentboxSource` is verified against the live sandbox and `npm run db:seed:agentbox` fills D1 from it. Production credentials have not been issued yet; `--allow-production` is the only switch that will need flipping. The default source is still `MockSource`, so a fresh checkout needs no credentials.
+
+## Verified against the live site, 2 September 2026
+
+Checked directly against stonerealestate.com.au and the Reapit Sales API v2
+sandbox reference. Recorded here because each of these was previously an
+assumption, and two of them contradict the site architecture map in `.agents/`.
+
+**Legacy URL formats.** Properties are
+`www.stonerealestate.com.au/property/{id}-{street}-{suburb}-{state}/` — real
+example, `/property/8791905-34-sycamore-avenue-bateau-bay-nsw/`. Agents nest
+under their office: `/stone-{office}/meet-team/{name}/`, e.g.
+`/stone-tumbi-umbi/meet-team/tony-trinder/`. The 301 map has to cover both, and
+neither is the `/listings/*` space `src/pages/listings/[...path].astro` handles —
+that file redirects our own earlier URLs, not WordPress's.
+
+**Off-market listings are already public.** `/buy/off-market-sales/` shows
+addresses, bed/bath/car counts and some prices, filtered by the same form as the
+main listings. `filter[offMarketListing]` on `/listings` is how they are
+selected — off-market is a filter, not a separate status or resource. This
+removes the vendor-consent question that would otherwise sit in front of it.
+
+**Inspection and auction times are load-bearing.** They appear on listing cards,
+on every property page, and in a homepage "What's on This Week" calendar. The
+canonical `Listing` type has no field for either and the schema has no table.
+Adding them is a type change, so it needs a decision before anyone starts.
+
+**Three forms post into the CRM.** An "Ask a question" enquiry form on every
+property page (the site's primary lead capture), plus Request Appraisal under
+both Sell and Rent. All three are `POST /enquiries`.
+
+**A general enquiry form now exists**, on the index page, via
+`src/lib/enquiries/`. It is **off by default**: nothing is sent unless
+`AGENTBOX_ENQUIRIES=true` and both Agentbox credentials are present, and when
+off it stores nothing either. Verified 11 September 2026 that the sandbox key
+*can* write — one test enquiry was accepted, CRM reference **1634**, contact
+`claude-form-test-20260911@example.com`. That record is safe to delete.
+
+**The Agentbox API key is restricted by source IP.** Requests from an address
+not on its allowlist get `401 Access Denied — "The IP is not allowed for the
+provided API key"`, for reads as well as writes, before the endpoint is even
+considered. The test above worked only from a dedicated IP. Webflow Cloud runs
+on Cloudflare, whose Workers send from a large shared pool of addresses rather
+than a fixed one, so **the live form cannot reach Agentbox, and neither can any
+sync moved onto Webflow Cloud**, until Reapit removes the restriction, allowlists
+Cloudflare's published ranges, or the calls go through a relay with a fixed IP.
+Do not switch the form on in a deployed environment before that is resolved.
+
+**Endpoint scope.** `docs/REAPIT-API-ENDPOINTS.md` is the submission to the
+Reapit API team: 16 endpoints, 15 read and one write. If code needs an endpoint
+that is not in that list, it is not approved — say so rather than calling it.
+
+## Open architectural decision: the mount path
+
+`docs/WEBFLOW-CLOUD-ARCHITECTURE.md` is the live one. Webflow have confirmed a
+Cloud app serves exactly one path prefix per environment, and that separate apps
+cannot share a D1 binding. Our routes therefore sit under `/app`, while every URL
+the live site ranks for is top-level — `/property/...`, `/buy`, `/projects`.
+
+Do not treat `/app/...` as settled, and do not solve it by fetching listing data
+from the browser: Webflow suggest that, and hard rule 4 forbids it. Four options
+and the two questions that decide between them are in that document.
 
 ## Hard rules
 
@@ -25,8 +93,12 @@ Do not violate these without asking first.
 **1. All identifiers are strings, never numbers.**
 Listing IDs are mostly 7 digits but some are 6. A second identifier exists in `100P######` and `IRE#######` forms. Integer columns will corrupt these silently.
 
-**2. Never call the Agentbox API.**
-No credentials exist. Any code touching a real endpoint is out of scope. Write against `MockSource` only.
+**2. Agentbox is sandbox-only.**
+*Amended 28 August 2026. This rule previously read "Never call the Agentbox API", on the premise that no credentials existed. Sandbox credentials have since been issued and the owner has authorised the integration.*
+
+Only the sandbox instance may be called. `AgentboxClient` decodes the client ID and refuses one that does not resolve to a sandbox unless `allowProduction: true` is passed deliberately. Reaching a live instance still needs a decision, not a config change.
+
+`createListingSource()` returns `MockSource` unless Agentbox is switched on with credentials in hand. Keep it that way: the fixtures need no network and no secrets, which is what keeps tests and a fresh checkout working.
 
 **3. Nothing outside `src/lib/ingestion/` may import a concrete source.**
 Consumers depend on the `ListingSource` interface, never on `MockSource` or a future `AgentboxSource` directly. This is what makes the eventual swap a non-event.
@@ -45,6 +117,39 @@ Upsert by `listing_id`. Running any sync twice must be a no-op. The source data 
 
 **8. Never commit secrets.**
 `.dev.vars` and `.env` stay in `.gitignore`. No credentials in code, config or commit messages.
+
+## Code components and deploys
+
+Use the `stone-code-component` skill (`.claude/skills/stone-code-component/`)
+before building a component for the Designer or running a deploy. It holds the
+working commands and the platform traps — the `npx`-versus-global CLI file lock,
+the Git Bash mount-path mangling, and the `.env` token that shadows the OAuth
+session. Rediscovering those costs hours.
+
+Two rules it encodes, repeated here because they are easy to get wrong:
+
+**A component that fetches in the browser declares `ssr: false`**, and may not
+be used on `/buy`, `/rent`, `/sold`, `/leased` or `/property/*`. Those are
+server-rendered from D1 under hard rule 4. Marketing pages and widgets are fine.
+
+**Component props match the canonical `Listing` field names exactly.** DevLink
+*exports* arrive prefixed by their Designer property group — `suburb` becomes
+`listingSuburb` — but that is DevLink's doing and must not be imitated in
+components we author.
+
+## Webflow CMS content
+
+`docs/WEBFLOW-CMS-TO-ASTRO.md` covers getting CMS-authored content — blog,
+testimonials, editorial copy — onto an Astro page, and `src/lib/webflow/cms.ts`
+is the client.
+
+DevLink cannot export a **Collection List** (it becomes `NotSupported`
+placeholders that render error text) and exports **no slots**, so a wrapper
+component cannot take children. Build one card per collection, never a repeater
+and never a grid wrapper; Astro fetches the rows and does the repeat.
+
+Not a route for listings: those come from Agentbox into D1, and reading them
+back from Webflow CMS would need the sync writer, which is out of scope.
 
 ## Naming convention
 

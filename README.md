@@ -53,10 +53,11 @@ Example [Astro](https://astro.build) app with React islands and the Cloudflare a
 DevLink pulls components out of the Webflow site and writes them into this repo
 as React components, which are then mounted as Astro islands.
 
-### Credential status — the export does not currently run
+### Credential status — the export runs, via OAuth
 
-Read this before spending time on it. As of August 2026 the export is blocked,
-and two of the three ways in are confirmed dead ends.
+Authenticate with `npx webflow auth login` and the export works. Two of the
+three routes in are dead ends; that third one is the live path. It opens a
+browser and waits on a localhost callback, so it cannot run in CI.
 
 **Site API tokens — gone.** Webflow has removed per-site API tokens from Site
 settings → Apps & integrations. There is no "API access" section and no
@@ -79,7 +80,7 @@ Note that the "Code components" permission is *not* this. Its description —
 "Import React components from an external codebase" — is the `devlink import`
 direction, the opposite of export.
 
-**OAuth login — untried, and the remaining candidate.** `npx webflow auth login`
+**OAuth login — this is the one that works.** `npx webflow auth login`
 runs a browser OAuth flow and writes credentials to `.env`. It is worth one
 attempt because the CLI's OAuth scope request list contains `devlink_export:read`
 directly, so it asks for the export scope through a channel that does not depend
@@ -174,9 +175,54 @@ Notes for whoever wires the results grid:
 
 ## Listing search
 
-`/listings` is server-rendered with **no client JavaScript at all** — the filter
-is a plain GET form. Listing data is present in view-source with JS disabled,
-and every filter combination is a distinct, shareable, crawlable URL.
+Browsing is split into five sections, each a real URL rather than a filter state
+of one page:
+
+```
+/properties        every public listing
+/buy               for sale, including under offer
+/rent              for rent
+/sold              sold
+/leased            leased
+/property/<slug>   one property
+```
+
+**These are relative to the app's mount path.** `base` in `astro.config.mjs` is
+`/staging`, so they are really `/staging/buy`, `/staging/rent` and so on;
+production mounts at `/app`. Nothing should build these paths by hand — use
+`sectionHref()` and `propertyHref()` from `src/lib/queries/sections.ts`, which
+take the base.
+
+`property` is singular and sits *beside* the sections, not under one: a listing
+moves between sections over its life and its URL must not move with it.
+
+Filters stay as query parameters *within* a section —
+`/buy?keywords=Manly&bedrooms=3` — so one result set has exactly one URL.
+Switching section keeps the filters and resets the page.
+
+The whole `/listings` subtree is gone and 301s to its replacement, so anything
+already linked or indexed still resolves:
+
+```
+/listings                  -> /properties
+/listings?status=forSale   -> /buy
+/listings/all              -> /properties
+/listings/buy              -> /buy      (and rent, sold, leased; filters kept)
+/listings/<slug>           -> /property/<slug>
+```
+
+Under offer sits inside Buy rather than in a section of its own: a property
+goes under offer partway through its campaign and can come back, and a separate
+URL would move it off the page that earned its ranking at the worst moment.
+
+**`withdrawn` is not reachable from any public URL.** The sections are defined
+as status sets in `src/lib/queries/sections.ts`, so there is no "no status
+filter" path — `?status=withdrawn` is blanked and then overwritten by the
+section's own statuses.
+
+Every page is server-rendered with **no client JavaScript at all** — the filter
+is a plain GET form and the section tabs are plain links. Listing data is
+present in view-source with JS disabled.
 
 These parameter names are inherited from the current live site and must not
 drift, because the URLs are indexed:
@@ -185,8 +231,61 @@ drift, because the URLs are indexed:
 keywords  property_type  price_min  price_max  bedrooms  bathrooms  carspaces
 ```
 
-`status`, `state`, `office`, `sort` and `page` are additions, not part of that
-inherited contract. `keywords` maps onto the suburb filter.
+`state`, `office`, `sort` and `page` are additions, not part of that inherited
+contract. `keywords` maps onto the suburb filter. `status` is still parsed, but
+only by the `/listings` redirect — the path carries it now.
+
+`/property/<listingId>` 301s to the current slug, so correcting an address does
+not 404 an indexed URL.
+
+
+## Office and agent directory
+
+```
+/offices           office directory
+/offices/<slug>    one office: its team and its properties
+/agents            agent directory
+/agents/<slug>     one agent: profile, contact, their properties
+```
+
+Filled by `npm run db:seed:agentbox`, which calls `/offices` and `/staff` in
+addition to the listing feed. The listing payload only names an office, so
+without that sync these pages have a name and a count and nothing else.
+
+### Who appears, and who must not
+
+**The directory is not "everyone in the CRM."** The sandbox holds 119 agent
+rows, 102 of them `role: Admin` — mostly integration and test accounts, and 47
+of those front a live listing. So "has listings" is not a safe proxy for "is a
+public agent".
+
+The rule lives in `src/lib/directory-policy.ts` and is applied **in the query**,
+not in a template, so an excluded account has no reachable page even if the URL
+is guessed:
+
+```
+active AND ( role is not Admin OR webDisplay contains "Our Staff" )
+```
+
+`webDisplay` is Agentbox's own publication flag, so an office manager whose CRM
+role is Admin can still be listed when Stone deliberately ticks the box. In the
+sandbox this publishes 12 people out of 119.
+
+### Personal data is dropped at the boundary
+
+`/staff/{id}` returns `dateOfBirth` and `homeAddress`. Neither has any place on
+a property website, so `mapStaffRecord` names the fields it wants and everything
+else is discarded — there is no column for them to land in, and a field Reapit
+adds later is dropped by default rather than silently persisted.
+
+### Two things the API does not give us
+
+- **No agent photographs.** There is no photo field on `/staff` or
+  `/staff/{id}`. Headshots have to come from somewhere else.
+- **Biographies are HTML.** Every populated `profile` in the sandbox is markup,
+  and a couple of listing descriptions are too. `src/lib/rich-text.ts` converts
+  both to plain paragraphs, which are rendered as text — this copy is typed by
+  agents into a CRM and is never trusted as HTML.
 
 ### Local setup
 
@@ -197,8 +296,74 @@ npm run db:seed     # upsert fixtures into D1; safe to re-run
 npm run build && npx wrangler dev
 ```
 
-Then visit `/CLOUD_MOUNT_PATH/listings` (the mount path is substituted on
-Webflow Cloud).
+Then visit `/staging/properties` — `base` in `astro.config.mjs` is pinned to
+`/staging`, matching the staging environment's mount path. Production mounts at
+`/app`, so that value has to change before this lands on `main`.
+
+### Running against the real Agentbox feed
+
+`npm run db:seed` loads the synthetic fixtures. To load real listings instead,
+put credentials in `.dev.vars` at the project root — gitignored, and **not**
+`.env.example`, which is committed:
+
+```sh
+AGENTBOX_CLIENT_ID=...   # base64 of the admin URL; it selects the instance
+AGENTBOX_API_KEY=...
+```
+
+Then:
+
+```sh
+npm run agentbox:probe      # one listing, and what the mapping makes of it
+npm run db:seed:agentbox    # drain the feed into local D1
+```
+
+Useful flags on the seed (`node --experimental-strip-types scripts/seed-d1.ts …`):
+
+| Flag | Effect |
+|---|---|
+| `--agentbox` | Use the API instead of the fixtures |
+| `--limit N` | Stop after N listings — a quick look without draining the instance |
+| `--no-hydrate` | Skip the per-listing detail fetch: much faster, but no photos and no numeric prices |
+| `--allow-production` | Address a live instance (see below) |
+| `--remote` | Write to the deployed D1 rather than the local one |
+
+Three things about the API that the published reference does not tell you, all
+confirmed by probing the sandbox:
+
+- **Every request needs a `version` query parameter.** Without one the API
+  answers HTTP 300 "Invalid Version". The client sends `version=2` on every
+  call.
+- **`/listings` does not return photos.** `include=images` is accepted and
+  silently ignored there; images exist only on `/listings/{id}`. A complete sync
+  is therefore a list walk plus one detail fetch per listing, which is what
+  hydration does and why it costs a request each.
+- **Most of an instance is not publishable.** On the sandbox, 1,167 of 2,103
+  listings carry `marketingStatus: "Not Listed"` — appraisals and pre-listings.
+  The source filters to `Available, Sold, Leased, Under Contract` by default,
+  leaving 936.
+
+Agents and offices come from the listing payloads themselves; Agentbox embeds
+the whole staff record in each listing, so no separate `/staff` sync is needed
+and the fixture agent files are not used on this path.
+
+### Sandbox and production
+
+The client refuses a client ID that does not base64-decode to a sandbox admin
+URL. That is deliberate — live vendor data is not something to reach for by
+accident.
+
+When the production credentials arrive, nothing in the code changes. Swap the
+two values in `.dev.vars` and opt in explicitly, per run:
+
+```sh
+node --experimental-strip-types scripts/seed-d1.ts --agentbox --allow-production
+```
+
+or, for a shell that only ever holds live keys, set
+`AGENTBOX_ALLOW_PRODUCTION=true` in the environment or `.dev.vars`. Both the
+probe and the seed print which instance they are addressing before they do
+anything.
 
 ### Seeding a deployed environment
 

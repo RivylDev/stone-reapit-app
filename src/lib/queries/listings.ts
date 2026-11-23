@@ -1,4 +1,7 @@
-import type { ListingStatus } from '../types/listing.ts';
+import type {
+  AuctionVenueDetails, ListingDocument, ListingInspection, ListingLink, ListingStatus,
+} from '../types/listing.ts';
+import { cardPriceLabel } from '../price-label.ts';
 
 /**
  * The listing search.
@@ -23,6 +26,8 @@ export interface SearchParams {
   bathsMin?: number;
   carsMin?: number;
   officeId?: string;
+  /** Listings this agent fronts. Joined through `listing_agents`. */
+  agentId?: string;
   page?: number;
   perPage?: number;
   sort?: SearchSort;
@@ -45,6 +50,13 @@ export interface ListingSummary {
   priceValue: number | null;
   priceDisplay: string;
   priceSearchable: boolean;
+  /**
+   * The consistent price line for cards and search results, built by
+   * `cardPriceLabel`: status and sale method from Reapit, the price from the
+   * agent's text only when it holds a figure. `priceDisplay` stays the agent's
+   * exact wording, for the property page.
+   */
+  priceLabel: string;
   bedrooms: number | null;
   bathrooms: number | null;
   carspaces: number | null;
@@ -162,6 +174,18 @@ function buildConditions(params: SearchParams, omit?: keyof FacetCounts): {
     conditions.push({ sql: 'l.office_id = ?', values: [params.officeId] });
   }
 
+  /*
+   * EXISTS rather than a join: a listing can carry several agents, and joining
+   * would multiply the row out and inflate both the count and the facets.
+   */
+  if (params.agentId) {
+    conditions.push({
+      sql: 'EXISTS (SELECT 1 FROM listing_agents la2 WHERE la2.listing_id = l.listing_id '
+        + 'AND la2.agent_id = ?)',
+      values: [params.agentId],
+    });
+  }
+
   const kept = conditions.filter((c) => omit === undefined || c.dimension !== omit);
 
   return {
@@ -202,6 +226,8 @@ interface ListingRow {
   price_value: number | null;
   price_display: string;
   price_searchable: number;
+  sale_method: string | null;
+  sold_price_confidential: number | null;
   bedrooms: number | null;
   bathrooms: number | null;
   carspaces: number | null;
@@ -241,6 +267,13 @@ function toSummary(row: ListingRow): ListingSummary {
     priceValue: row.price_value,
     priceDisplay: row.price_display,
     priceSearchable: row.price_searchable === 1,
+    priceLabel: cardPriceLabel({
+      status: row.status as ListingStatus,
+      saleMethod: row.sale_method ?? null,
+      priceDisplay: row.price_display ?? '',
+      priceValue: row.price_value,
+      soldPriceConfidential: row.sold_price_confidential === 1,
+    }),
     bedrooms: row.bedrooms,
     bathrooms: row.bathrooms,
     carspaces: row.carspaces,
@@ -308,7 +341,8 @@ export async function search(db: D1Database, params: SearchParams = {}): Promise
   const rowsSql =
     'SELECT l.listing_id, l.unique_id, l.slug, l.status, l.property_type, l.unit_number, '
     + 'l.street_number, l.street, l.suburb, l.state, l.postcode, l.display_address, '
-    + 'l.price_value, l.price_display, l.price_searchable, l.bedrooms, l.bathrooms, '
+    + 'l.price_value, l.price_display, l.price_searchable, l.sale_method, '
+    + 'l.sold_price_confidential, l.bedrooms, l.bathrooms, '
     + 'l.carspaces, l.office_id, l.listed_at, l.modified_at, '
     + '(SELECT COUNT(*) FROM listing_images i WHERE i.listing_id = l.listing_id) AS photo_count, '
     + '(SELECT i.url FROM listing_images i WHERE i.listing_id = l.listing_id '
@@ -339,4 +373,269 @@ export async function search(db: D1Database, params: SearchParams = {}): Promise
     perPage,
     totalPages,
   };
+}
+
+/* -------------------------------------------------------------- one listing --
+
+ * The detail page reads through here. `search()` returns a flattened summary
+ * shaped for the card; a listing page needs the whole record plus the rows that
+ * hang off it, so it gets its own type and its own query rather than widening
+ * the summary for every result on a page of twelve.
+ */
+
+export interface ListingImage {
+  url: string;
+  position: number;
+  caption: string | null;
+}
+
+export interface ListingFloorplan {
+  url: string;
+  order: number;
+}
+
+/** An agent attached to a listing. `fullName` is null when the agents table has
+ *  no matching row — the join is left outer on purpose, since a listing must
+ *  still render when its agent has not been synced yet. */
+export interface ListingAgent {
+  agentId: string;
+  fullName: string | null;
+  phone: string | null;
+  email: string | null;
+  photoUrl: string | null;
+}
+
+export interface ListingOffice {
+  officeId: string;
+  name: string;
+  suburb: string | null;
+  state: string | null;
+  postcode: string | null;
+  phone: string | null;
+  email: string | null;
+}
+
+export interface ListingDetail extends ListingSummary {
+  category: string;
+  unitNumber: string | null;
+  streetNumber: string | null;
+  street: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  landSize: number | null;
+  landSizeUnit: string | null;
+  headline: string;
+  description: string;
+  features: string[];
+  images: ListingImage[];
+  floorplans: ListingFloorplan[];
+  videoUrl: string | null;
+  /** Render an auction only when this is "Auction"; `auctionAt` can be stale. */
+  saleMethod: string | null;
+  auctionAt: string | null;
+  auctionVenue: string | null;
+  auctionVenueDetails: AuctionVenueDetails | null;
+  inspections: ListingInspection[];
+  documents: ListingDocument[];
+  links: ListingLink[];
+  availableFrom: string | null;
+  bond: number | null;
+  projectId: string | null;
+  projectName: string | null;
+  /** When true, never show a sold or leased figure. `priceDisplay` is already safe. */
+  soldPriceConfidential: boolean;
+  soldAt: string | null;
+  agents: ListingAgent[];
+  office: ListingOffice | null;
+}
+
+interface DetailRow extends ListingRow {
+  category: string;
+  latitude: number | null;
+  longitude: number | null;
+  land_size: number | null;
+  land_size_unit: string | null;
+  headline: string;
+  description: string;
+  features: string;
+  floorplans: string;
+  video_url: string | null;
+  sale_method: string | null;
+  auction_at: string | null;
+  auction_venue: string | null;
+  inspections: string;
+  documents: string;
+  links: string;
+  available_from: string | null;
+  bond: number | null;
+  project_id: string | null;
+  project_name: string | null;
+  auction_venue_details: string | null;
+  sold_price_confidential: number;
+  sold_at: string | null;
+}
+
+/**
+ * `features` and `floorplans` are JSON columns. A malformed value is treated as
+ * empty rather than thrown: one bad row must not take a page down, and the
+ * untouched source object is still in `raw_payload` if it needs recovering.
+ */
+function parseJsonArray<T>(value: string | null): T[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed as T[] : [];
+  } catch {
+    return [];
+  }
+}
+
+/** A JSON object column, or null when empty or malformed. */
+function parseJsonObject<T>(value: string | null): T | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as T : null;
+  } catch {
+    return null;
+  }
+}
+
+const DETAIL_COLUMNS =
+  'l.listing_id, l.unique_id, l.slug, l.status, l.property_type, l.category, '
+  + 'l.unit_number, l.street_number, l.street, l.suburb, l.state, l.postcode, '
+  + 'l.display_address, l.latitude, l.longitude, '
+  + 'l.price_value, l.price_display, l.price_searchable, '
+  + 'l.bedrooms, l.bathrooms, l.carspaces, l.land_size, l.land_size_unit, '
+  + 'l.headline, l.description, l.features, l.floorplans, l.video_url, '
+  + 'l.sale_method, l.auction_at, l.auction_venue, l.inspections, l.documents, '
+  + 'l.links, l.available_from, l.bond, l.project_id, l.project_name, '
+  + 'l.auction_venue_details, l.sold_price_confidential, '
+  + 'l.office_id, l.listed_at, l.sold_at, l.modified_at';
+
+async function hydrate(db: D1Database, row: DetailRow): Promise<ListingDetail> {
+  const listingId = row.listing_id;
+
+  // One batch, one round trip. Images and agents are ordered by `position`,
+  // which is the source ordering the loader preserved.
+  const [imageResult, agentResult, officeResult] = await db.batch<any>([
+    db.prepare(
+      'SELECT position, url, caption FROM listing_images '
+      + 'WHERE listing_id = ? ORDER BY position ASC',
+    ).bind(listingId),
+    db.prepare(
+      'SELECT la.agent_id, a.full_name, a.phone, a.email, a.photo_url '
+      + 'FROM listing_agents la '
+      + 'LEFT JOIN agents a ON a.agent_id = la.agent_id AND a.deleted_at IS NULL '
+      + 'WHERE la.listing_id = ? ORDER BY la.position ASC',
+    ).bind(listingId),
+    db.prepare(
+      'SELECT office_id, name, suburb, state, postcode, phone, email FROM offices '
+      + 'WHERE office_id = ? AND deleted_at IS NULL',
+    ).bind(row.office_id ?? ''),
+  ]);
+
+  const images: ListingImage[] = (imageResult.results ?? []).map((i: any) => ({
+    url: i.url as string,
+    position: i.position as number,
+    caption: (i.caption ?? null) as string | null,
+  }));
+
+  const agents: ListingAgent[] = (agentResult.results ?? []).map((a: any) => ({
+    agentId: String(a.agent_id),
+    fullName: (a.full_name ?? null) as string | null,
+    phone: (a.phone ?? null) as string | null,
+    email: (a.email ?? null) as string | null,
+    photoUrl: (a.photo_url ?? null) as string | null,
+  }));
+
+  const officeRow = (officeResult.results ?? [])[0];
+  const office: ListingOffice | null = officeRow
+    ? {
+        officeId: String(officeRow.office_id),
+        name: officeRow.name as string,
+        suburb: (officeRow.suburb ?? null) as string | null,
+        state: (officeRow.state ?? null) as string | null,
+        postcode: (officeRow.postcode ?? null) as string | null,
+        phone: (officeRow.phone ?? null) as string | null,
+        email: (officeRow.email ?? null) as string | null,
+      }
+    : null;
+
+  const lead = agents[0];
+
+  const summary = toSummary({
+    ...row,
+    photo_count: images.length,
+    primary_image_url: images[0]?.url ?? null,
+    agent_name: lead?.fullName ?? null,
+    agent_phone: lead?.phone ?? null,
+  });
+
+  return {
+    ...summary,
+    category: row.category,
+    unitNumber: row.unit_number,
+    streetNumber: row.street_number,
+    street: row.street,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    landSize: row.land_size,
+    landSizeUnit: row.land_size_unit,
+    headline: row.headline ?? '',
+    description: row.description ?? '',
+    features: parseJsonArray<string>(row.features),
+    images,
+    floorplans: parseJsonArray<ListingFloorplan>(row.floorplans),
+    videoUrl: row.video_url,
+    saleMethod: row.sale_method,
+    auctionAt: row.auction_at,
+    auctionVenue: row.auction_venue,
+    inspections: parseJsonArray<ListingInspection>(row.inspections),
+    documents: parseJsonArray<ListingDocument>(row.documents),
+    links: parseJsonArray<ListingLink>(row.links),
+    availableFrom: row.available_from,
+    bond: row.bond,
+    projectId: row.project_id,
+    projectName: row.project_name,
+    auctionVenueDetails: parseJsonObject<AuctionVenueDetails>(row.auction_venue_details),
+    soldPriceConfidential: row.sold_price_confidential === 1,
+    soldAt: row.sold_at,
+    agents,
+    office,
+  };
+}
+
+/**
+ * One listing by slug, with its images, agents and office.
+ *
+ * Returns null for an unknown or soft-deleted slug — the route turns that into
+ * a 404. Soft-deleted rows stay in the table (rule 5) but must not be served.
+ */
+export async function findBySlug(db: D1Database, slug: string): Promise<ListingDetail | null> {
+  const row = await db
+    .prepare(`SELECT ${DETAIL_COLUMNS} FROM listings l WHERE l.slug = ? AND l.deleted_at IS NULL`)
+    .bind(slug)
+    .first<DetailRow>();
+
+  return row ? hydrate(db, row) : null;
+}
+
+/**
+ * The same record by ID.
+ *
+ * A slug carries the address, so it changes when an address is corrected. The
+ * ID never does, which makes it the stable way in — the route falls back to
+ * this and redirects to the current slug, so an old URL keeps working.
+ */
+export async function findByListingId(
+  db: D1Database,
+  listingId: string,
+): Promise<ListingDetail | null> {
+  const row = await db
+    .prepare(`SELECT ${DETAIL_COLUMNS} FROM listings l WHERE l.listing_id = ? AND l.deleted_at IS NULL`)
+    .bind(listingId)
+    .first<DetailRow>();
+
+  return row ? hydrate(db, row) : null;
 }
