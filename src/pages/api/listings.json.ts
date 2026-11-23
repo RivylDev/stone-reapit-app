@@ -84,7 +84,9 @@ function toPayload(listing: ListingSummary, base: string): ListingPayload {
     streetAddress: listing.streetAddress,
     priceDisplay: listing.priceDisplay,
     priceLabel: listing.priceLabel,
-    priceValue: listing.priceValue,
+    // A closed listing's search price can be its confidential sale price
+    // (production, 23 Nov 2026). Cards use priceLabel; nothing public needs it.
+    priceValue: listing.status === 'sold' || listing.status === 'leased' ? null : listing.priceValue,
     bedrooms: listing.bedrooms,
     bathrooms: listing.bathrooms,
     carspaces: listing.carspaces,
