@@ -144,7 +144,7 @@ const canonical = office ? `${Astro.url.origin}${officeHref(base, office.slug)}`
                           </a>
                         </h3>
                         <p class="dir-card-line">{listing.suburb} {listing.state}</p>
-                        <p class="dir-card-meta">{listing.priceDisplay || 'Contact agent'}</p>
+                        <p class="dir-card-meta">{listing.priceLabel}</p>
                       </li>
                     ))}
                   </ul>

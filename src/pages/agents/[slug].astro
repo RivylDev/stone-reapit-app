@@ -143,7 +143,7 @@ const canonical = agent ? `${Astro.url.origin}${agentHref(base, agent.slug)}` : 
                           </a>
                         </h3>
                         <p class="dir-card-line">{listing.suburb} {listing.state}</p>
-                        <p class="dir-card-meta">{listing.priceDisplay || 'Contact agent'}</p>
+                        <p class="dir-card-meta">{listing.priceLabel}</p>
                       </li>
                     ))}
                   </ul>

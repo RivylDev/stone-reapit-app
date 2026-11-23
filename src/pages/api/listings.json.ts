@@ -58,6 +58,8 @@ interface ListingPayload {
   displayAddress: string;
   streetAddress: string;
   priceDisplay: string;
+  /** The consistent card line; see `cardPriceLabel`. Prefer this on cards. */
+  priceLabel: string;
   priceValue: number | null;
   bedrooms: number | null;
   bathrooms: number | null;
@@ -81,6 +83,7 @@ function toPayload(listing: ListingSummary, base: string): ListingPayload {
     displayAddress: listing.displayAddress,
     streetAddress: listing.streetAddress,
     priceDisplay: listing.priceDisplay,
+    priceLabel: listing.priceLabel,
     priceValue: listing.priceValue,
     bedrooms: listing.bedrooms,
     bathrooms: listing.bathrooms,

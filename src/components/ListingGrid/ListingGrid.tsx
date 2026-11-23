@@ -39,6 +39,8 @@ export interface GridListing {
   displayAddress: string;
   streetAddress: string;
   priceDisplay: string;
+  /** The consistent card line from the API. Absent on older payloads. */
+  priceLabel?: string;
   priceValue: number | null;
   bedrooms: number | null;
   bathrooms: number | null;
@@ -87,6 +89,7 @@ function buildUrl(props: ListingGridProps): string {
  * "Contact agent" rather than an empty line.
  */
 function priceOf(listing: GridListing): string {
+  if (listing.priceLabel) return listing.priceLabel;
   if (listing.priceDisplay) return listing.priceDisplay;
   if (listing.priceValue === null) return "Contact agent";
   return listing.priceValue.toLocaleString("en-AU", {

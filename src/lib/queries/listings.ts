@@ -1,6 +1,7 @@
 import type {
   AuctionVenueDetails, ListingDocument, ListingInspection, ListingLink, ListingStatus,
 } from '../types/listing.ts';
+import { cardPriceLabel } from '../price-label.ts';
 
 /**
  * The listing search.
@@ -49,6 +50,13 @@ export interface ListingSummary {
   priceValue: number | null;
   priceDisplay: string;
   priceSearchable: boolean;
+  /**
+   * The consistent price line for cards and search results, built by
+   * `cardPriceLabel`: status and sale method from Reapit, the price from the
+   * agent's text only when it holds a figure. `priceDisplay` stays the agent's
+   * exact wording, for the property page.
+   */
+  priceLabel: string;
   bedrooms: number | null;
   bathrooms: number | null;
   carspaces: number | null;
@@ -218,6 +226,8 @@ interface ListingRow {
   price_value: number | null;
   price_display: string;
   price_searchable: number;
+  sale_method: string | null;
+  sold_price_confidential: number | null;
   bedrooms: number | null;
   bathrooms: number | null;
   carspaces: number | null;
@@ -257,6 +267,13 @@ function toSummary(row: ListingRow): ListingSummary {
     priceValue: row.price_value,
     priceDisplay: row.price_display,
     priceSearchable: row.price_searchable === 1,
+    priceLabel: cardPriceLabel({
+      status: row.status as ListingStatus,
+      saleMethod: row.sale_method ?? null,
+      priceDisplay: row.price_display ?? '',
+      priceValue: row.price_value,
+      soldPriceConfidential: row.sold_price_confidential === 1,
+    }),
     bedrooms: row.bedrooms,
     bathrooms: row.bathrooms,
     carspaces: row.carspaces,
@@ -324,7 +341,8 @@ export async function search(db: D1Database, params: SearchParams = {}): Promise
   const rowsSql =
     'SELECT l.listing_id, l.unique_id, l.slug, l.status, l.property_type, l.unit_number, '
     + 'l.street_number, l.street, l.suburb, l.state, l.postcode, l.display_address, '
-    + 'l.price_value, l.price_display, l.price_searchable, l.bedrooms, l.bathrooms, '
+    + 'l.price_value, l.price_display, l.price_searchable, l.sale_method, '
+    + 'l.sold_price_confidential, l.bedrooms, l.bathrooms, '
     + 'l.carspaces, l.office_id, l.listed_at, l.modified_at, '
     + '(SELECT COUNT(*) FROM listing_images i WHERE i.listing_id = l.listing_id) AS photo_count, '
     + '(SELECT i.url FROM listing_images i WHERE i.listing_id = l.listing_id '
