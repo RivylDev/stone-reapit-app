@@ -54,10 +54,18 @@ const DEFAULT_PAGE_SIZE = 100;
  * correct, which is exactly the kind of failure that ships.
  */
 const LIST_INCLUDES = 'relatedStaffMembers,mainDescription';
-const DETAIL_INCLUDES = 'images,relatedStaffMembers,mainDescription';
+// `inspectionDates` and `documents` confirmed on production 23 Nov 2026; like
+// `images`, neither appears unless named.
+const DETAIL_INCLUDES = 'images,relatedStaffMembers,mainDescription,inspectionDates,documents';
 
-/** Detail fetches in flight at once during hydration. */
-const DEFAULT_CONCURRENCY = 6;
+/**
+ * Detail fetches in flight at once during hydration.
+ *
+ * Reapit's limit per key (their August notes): 5 concurrent, or 20 requests per
+ * 5 seconds, 240 a minute. Over it, requests queue and then fail 429 after five
+ * seconds. Six was one over.
+ */
+const DEFAULT_CONCURRENCY = 5;
 
 /**
  * The marketing states that mean "this listing is on the market".

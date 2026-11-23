@@ -191,6 +191,7 @@ const CONSUMED_KEYS = new Set([
   'mainHeadline', 'mainDescription', 'images', 'floorplans',
   'listedDate', 'soldDate', 'leasedDate', 'lastModified', 'firstCreated',
   'webLink', 'hiddenListing', 'offMarketListing',
+  'method', 'auctionDate', 'auctionVenue', 'inspectionDates', 'documents',
 ]);
 
 /**
@@ -322,6 +323,16 @@ export function mapListing(raw: unknown): Listing {
     floorplans: mapFloorplans(pick(raw, 'floorplans')),
     videoUrl: asString(pick(raw, 'videoLink', 'videoUrl')),
 
+    // Confirmed against production 23 Nov 2026. `auctionDate` carries an
+    // offset (`2026-10-16T17:30:00+11:00`) and survives a switch to private
+    // treaty, so it is only meaningful alongside `saleMethod`.
+    saleMethod: asString(pick(raw, 'method')),
+    auctionAt: asIsoDate(pick(raw, 'auctionDate')),
+    auctionVenue: asString(pick(raw, 'auctionVenue')),
+    // Both arrive only on `/listings/{id}`, and only when named in `include`.
+    inspections: mapInspections(pick(raw, 'inspectionDates')),
+    documents: mapDocuments(pick(raw, 'documents')),
+
     officeId: asString(pick(raw, 'officeId')) ?? '',
     agentIds: mapAgentIds(pick(raw, 'relatedStaffMembers')),
 
@@ -365,6 +376,46 @@ function mapImages(value: unknown): Listing['images'] {
       caption: asString(pick(entry, 'title', 'caption')),
     }))
     .filter((image) => image.url !== '')
+    .sort((a, b) => a.order - b.order);
+}
+
+/**
+ * Open homes, from `include=inspectionDates` on the detail endpoint:
+ * `[{ id, startDate: "2026-11-25T12:00:00+11:00", endDate: "…" }]`.
+ * Sorted soonest first; an entry with no parseable start is dropped.
+ */
+function mapInspections(value: unknown): Listing['inspections'] {
+  return asArray(value)
+    .map((entry) => ({
+      startsAt: asIsoDate(pick(entry, 'startDate')),
+      endsAt: asIsoDate(pick(entry, 'endDate')),
+    }))
+    .filter((inspection): inspection is Listing['inspections'][number] => inspection.startsAt !== null)
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+}
+
+/**
+ * Documents, from `include=documents` on the detail endpoint.
+ *
+ * Agentbox returns every file attached to the listing, and production showed
+ * what that includes: the signed agency agreement (`private: true`) and the
+ * sale contract (`webDisplay: false`). Only a document that is both web-display
+ * and not private may leave this function. Anything ambiguous is dropped, since
+ * publishing a private file is the failure that cannot be taken back.
+ */
+function mapDocuments(value: unknown): Listing['documents'] {
+  return asArray(value)
+    .filter((entry) =>
+      asBoolean(pick(entry, 'webDisplay')) === true
+      && asBoolean(pick(entry, 'private')) === false)
+    .map((entry, index) => ({
+      title: asString(pick(entry, 'customTitle', 'title')) ?? 'Document',
+      type: asString(pick(entry, 'type')),
+      url: asString(pick(entry, 'url')) ?? '',
+      order: asNumber(pick(entry, 'order')) ?? index,
+      urlExpiresAt: asIsoDate(pick(entry, 'urlExpiry')),
+    }))
+    .filter((document) => document.url !== '')
     .sort((a, b) => a.order - b.order);
 }
 

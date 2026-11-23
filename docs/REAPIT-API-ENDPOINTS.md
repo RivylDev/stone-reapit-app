@@ -161,6 +161,11 @@ calendar, with auction dates alongside them. **Do inspection and auction times
 come back on `/listings`, on `/listings/{listingId}`, or only under a particular
 `include`?**
 
+*Answered by testing, 23 Nov 2026 (production, read-only):* on
+`/listings/{listingId}` with `include=inspectionDates`, as
+`[{ id, startDate, endDate }]` with offsets. `auctionDate` and `auctionVenue`
+come back without an include. `include=documents` also works on that route.
+
 ### 4. Rate limit and page size
 
 Documented default `limit` is 20 with no maximum stated. We use 100 and it works.
@@ -169,6 +174,10 @@ retrying `429` and `5xx` with exponential backoff.
 
 **If you have a documented rate limit or a preferred concurrency for a walk that
 size, we will match it** — we would rather tune to your number than find it.
+
+*Answered in Reapit's August notes:* 5 concurrent or 20 requests per 5 seconds
+per key, 240 a minute; over that, requests queue, then `429` after 5 seconds.
+Concurrency is now 5 (23 Nov 2026).
 
 ---
 

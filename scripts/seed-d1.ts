@@ -201,7 +201,8 @@ const LISTING_COLUMNS = [
   'display_address', 'latitude', 'longitude', 'price_value', 'price_display',
   'price_searchable', 'bedrooms', 'bathrooms', 'carspaces', 'land_size',
   'land_size_unit', 'headline', 'description', 'features', 'floorplans',
-  'video_url', 'office_id', 'listed_at', 'sold_at', 'modified_at',
+  'video_url', 'sale_method', 'auction_at', 'auction_venue', 'inspections',
+  'documents', 'office_id', 'listed_at', 'sold_at', 'modified_at',
   'raw_payload', 'last_seen_at', 'deleted_at',
 ];
 
@@ -213,7 +214,9 @@ const listingStatements = listings.map((l) => {
     l.priceSearchable, l.bedrooms, l.bathrooms, l.carspaces, l.landSize,
     l.landSizeUnit, l.headline, l.description,
     JSON.stringify(l.features), JSON.stringify(l.floorplans),
-    l.videoUrl, l.officeId, l.listedAt, l.soldAt, l.modifiedAt,
+    l.videoUrl, l.saleMethod, l.auctionAt, l.auctionVenue,
+    JSON.stringify(l.inspections), JSON.stringify(l.documents),
+    l.officeId, l.listedAt, l.soldAt, l.modifiedAt,
     // The untouched source object, so a field needed later is re-normalised
     // from local data rather than re-fetched.
     JSON.stringify(l),

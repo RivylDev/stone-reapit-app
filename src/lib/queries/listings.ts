@@ -1,4 +1,4 @@
-import type { ListingStatus } from '../types/listing.ts';
+import type { ListingDocument, ListingInspection, ListingStatus } from '../types/listing.ts';
 
 /**
  * The listing search.
@@ -410,6 +410,12 @@ export interface ListingDetail extends ListingSummary {
   images: ListingImage[];
   floorplans: ListingFloorplan[];
   videoUrl: string | null;
+  /** Render an auction only when this is "Auction"; `auctionAt` can be stale. */
+  saleMethod: string | null;
+  auctionAt: string | null;
+  auctionVenue: string | null;
+  inspections: ListingInspection[];
+  documents: ListingDocument[];
   soldAt: string | null;
   agents: ListingAgent[];
   office: ListingOffice | null;
@@ -426,6 +432,11 @@ interface DetailRow extends ListingRow {
   features: string;
   floorplans: string;
   video_url: string | null;
+  sale_method: string | null;
+  auction_at: string | null;
+  auction_venue: string | null;
+  inspections: string;
+  documents: string;
   sold_at: string | null;
 }
 
@@ -451,6 +462,7 @@ const DETAIL_COLUMNS =
   + 'l.price_value, l.price_display, l.price_searchable, '
   + 'l.bedrooms, l.bathrooms, l.carspaces, l.land_size, l.land_size_unit, '
   + 'l.headline, l.description, l.features, l.floorplans, l.video_url, '
+  + 'l.sale_method, l.auction_at, l.auction_venue, l.inspections, l.documents, '
   + 'l.office_id, l.listed_at, l.sold_at, l.modified_at';
 
 async function hydrate(db: D1Database, row: DetailRow): Promise<ListingDetail> {
@@ -528,6 +540,11 @@ async function hydrate(db: D1Database, row: DetailRow): Promise<ListingDetail> {
     images,
     floorplans: parseJsonArray<ListingFloorplan>(row.floorplans),
     videoUrl: row.video_url,
+    saleMethod: row.sale_method,
+    auctionAt: row.auction_at,
+    auctionVenue: row.auction_venue,
+    inspections: parseJsonArray<ListingInspection>(row.inspections),
+    documents: parseJsonArray<ListingDocument>(row.documents),
     soldAt: row.sold_at,
     agents,
     office,

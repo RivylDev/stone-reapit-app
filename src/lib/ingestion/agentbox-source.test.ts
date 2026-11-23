@@ -262,7 +262,7 @@ describe('AgentboxSource.fetchAll', () => {
     assert.equal(calls[0].url.searchParams.get('include'), 'relatedStaffMembers,mainDescription');
     assert.equal(
       calls[1].url.searchParams.get('include'),
-      'images,relatedStaffMembers,mainDescription',
+      'images,relatedStaffMembers,mainDescription,inspectionDates,documents',
     );
   });
 
@@ -400,6 +400,65 @@ describe('mapping vocabulary', () => {
     assert.equal(mapCategory('Holiday'), 'residential');
     assert.equal(mapCategory('Rural'), 'rural');
     assert.equal(mapCategory('Land'), 'land');
+  });
+
+  /*
+   * Shapes below are copied from the production instance, 23 Nov 2026.
+   */
+  it('maps open homes from inspectionDates, soonest first, in UTC', () => {
+    const listing = mapListing(listingPayload('1234567', {
+      inspectionDates: [
+        { id: '524221', startDate: '2026-11-28T11:00:00+11:00', endDate: '2026-11-28T11:30:00+11:00' },
+        { id: '523947', startDate: '2026-11-25T12:00:00+11:00', endDate: '2026-11-25T12:30:00+11:00' },
+        { id: 'broken', startDate: '', endDate: '' },
+      ],
+    }));
+
+    assert.deepEqual(listing.inspections, [
+      { startsAt: '2026-11-25T01:00:00.000Z', endsAt: '2026-11-25T01:30:00.000Z' },
+      { startsAt: '2026-11-28T00:00:00.000Z', endsAt: '2026-11-28T00:30:00.000Z' },
+    ]);
+  });
+
+  it('keeps the sale method beside the auction date, which can be stale', () => {
+    const listing = mapListing(listingPayload('1234567', {
+      method: 'Private Treaty',
+      auctionDate: '2026-10-16T17:30:00+11:00',
+      auctionVenue: '',
+    }));
+
+    assert.equal(listing.saleMethod, 'Private Treaty');
+    assert.equal(listing.auctionAt, '2026-10-16T06:30:00.000Z');
+    assert.equal(listing.auctionVenue, null);
+  });
+
+  /*
+   * Production returned the signed agency agreement on this include. A private
+   * file reaching a public page is the one mistake here that cannot be undone.
+   */
+  it('publishes only documents that are web-display and not private', () => {
+    const listing = mapListing(listingPayload('1234567', {
+      documents: [
+        { id: '1', url: 'https://x/agency.pdf', title: 'Agency Agreement', customTitle: 'Agency Agreement', type: 'Agency Agreement', private: true, urlExpiry: '2026-11-23T14:11:13+11:00', webDisplay: false, order: '1' },
+        { id: '2', url: 'https://x/contract.pdf', title: 'Contract', customTitle: 'Contract', type: 'Property Contract', private: false, urlExpiry: '', webDisplay: false, order: '2' },
+        { id: '3', url: 'https://x/private-but-web.pdf', title: 'Odd', type: 'Other', private: true, webDisplay: true, order: '3' },
+        { id: '4', url: 'https://x/no-flags.pdf', title: 'Unflagged', type: 'Other', order: '4' },
+        { id: '5', url: 'https://x/brochure.pdf', title: 'Brochure', customTitle: 'Sales brochure', type: 'Brochure', private: false, urlExpiry: '', webDisplay: true, order: '5' },
+      ],
+    }));
+
+    assert.deepEqual(listing.documents, [
+      { title: 'Sales brochure', type: 'Brochure', url: 'https://x/brochure.pdf', order: 5, urlExpiresAt: null },
+    ]);
+  });
+
+  it('defaults the new fields when a payload has none of them', () => {
+    const listing = mapListing(listingPayload('1234567'));
+
+    assert.equal(listing.saleMethod, null);
+    assert.equal(listing.auctionAt, null);
+    assert.deepEqual(listing.inspections, []);
+    assert.deepEqual(listing.documents, []);
   });
 
   it('takes the granular label from property.category', () => {

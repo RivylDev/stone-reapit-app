@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { Listing } from '../types/listing.ts';
+import { withListingDefaults, type Listing } from '../types/listing.ts';
 import { slugify } from './agentbox-mapping.ts';
 import type { SourceAgent, SourceOffice } from './source.ts';
 
@@ -59,7 +59,7 @@ function readRecords<T>(fileName: string, rootDir: string): T[] {
 }
 
 export function loadSeedListings(rootDir = process.cwd()): Listing[] {
-  return readRecords<Listing>(LISTINGS_FILE, rootDir);
+  return readRecords<Listing>(LISTINGS_FILE, rootDir).map(withListingDefaults);
 }
 
 /*
